@@ -47,7 +47,7 @@
   .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 
   /* Home */
-  .hello { font-size: 28px; font-weight: 900; }
+  .hello { font-size: clamp(20px, 6vw, 28px); font-weight: 900; }
   .level-bar { height: 14px; background: #e0e7ff; border-radius: 99px; overflow: hidden; }
   .level-bar > div { height: 100%; background: linear-gradient(90deg, #818cf8, #4f46e5); border-radius: 99px; transition: width .6s; }
   .pill { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 99px; background: #eef2ff; font-weight: 800; color: var(--accent); font-size: 15px; }
@@ -111,11 +111,18 @@
   label.set { display: flex; justify-content: space-between; align-items: center; font-weight: 800; padding: 8px 0; gap: 10px; }
   input[type=text], select { font: inherit; font-weight: 700; padding: 10px 12px; border-radius: 12px; border: 2px solid #e0e7ff; min-width: 0; width: 150px; user-select: text; -webkit-user-select: text; }
   input[type=checkbox] { width: 26px; height: 26px; accent-color: var(--accent); }
+  .player { display: flex; align-items: center; gap: 14px; width: 100%; padding: 18px 16px; }
+  .player:active { transform: scale(.98); }
+  .avatar { width: 56px; height: 56px; border-radius: 50%; color: #fff; font-size: 28px; font-weight: 900; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .pname { font-size: 24px; font-weight: 900; }
   #confetti { position: fixed; inset: 0; pointer-events: none; z-index: 20; }
 </style>
 </head>
 <body>
 <div id="app">
+
+  <!-- PLAYERS -->
+  <section id="players" class="screen hidden"></section>
 
   <!-- HOME -->
   <section id="home" class="screen"></section>
@@ -162,7 +169,7 @@
 'use strict';
 
 /* ---------------- Data ---------------- */
-const KEY = 'timesdash.v1';
+const KEY = 'timesdash.v2', OLD_KEY = 'timesdash.v1';
 const TITLES = ['Rookie', 'Counter', 'Quick Thinker', 'Number Ninja', 'Math Wizard', 'Speed Racer', 'Times Titan', 'Multiplication Master', 'Legend'];
 const BADGES = [
   { id: 'first',   i: '🎉', name: 'First Dash',    desc: 'Finish a full session' },
@@ -181,13 +188,46 @@ const BADGES = [
   { id: 'master',  i: '🧠', name: 'Grandmaster',   desc: 'Every fact green on the grid' },
 ];
 
-function fresh() {
-  return { v: 1, name: '', xp: 0, sessions: [], facts: {}, badges: {}, settings: { minutes: 10, includeOnes: false, sound: true } };
+const COLORS = ['#f59e0b', '#ec4899', '#10b981', '#3b82f6', '#8b5cf6', '#ef4444'];
+function fresh(name = '') {
+  return { v: 2, name, xp: 0, sessions: [], facts: {}, badges: {}, settings: { minutes: 5, includeOnes: false, sound: true } };
 }
-let S;
-try { S = Object.assign(fresh(), JSON.parse(localStorage.getItem(KEY)) || {}); } catch { S = fresh(); }
-S.settings = Object.assign(fresh().settings, S.settings);
-const save = () => localStorage.setItem(KEY, JSON.stringify(S));
+
+// R holds every player on this phone; S is the player currently playing.
+let R = null, S = null;
+try { R = JSON.parse(localStorage.getItem(KEY)); } catch {}
+if (!R || !R.players) {
+  R = { players: {}, order: [], current: null };
+  // Carry over progress from the single-player version (times reset to 5 minutes).
+  try {
+    const old = JSON.parse(localStorage.getItem(OLD_KEY));
+    if (old && (old.name || (old.sessions && old.sessions.length))) {
+      old.settings = Object.assign({}, old.settings, { minutes: 5 });
+      addPlayer(old.name || 'Player 1', old);
+    }
+  } catch {}
+}
+for (const id of R.order) R.players[id].settings = Object.assign(fresh().settings, R.players[id].settings);
+
+// A link like .../#players=Name1,Name2 adds those players on first open. Names stay on the phone.
+const seed = location.hash.match(/players=([^&]+)/);
+if (seed) {
+  for (const n of decodeURIComponent(seed[1]).split(',').map((s) => s.trim().slice(0, 20)).filter(Boolean).slice(0, 6)) {
+    if (!R.order.some((id) => R.players[id].name.toLowerCase() === n.toLowerCase())) addPlayer(n);
+  }
+  history.replaceState(null, '', location.pathname);
+}
+
+function addPlayer(name, data) {
+  const id = 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const p = Object.assign(fresh(name), data || {}, { name, v: 2 });
+  p.settings = Object.assign(fresh().settings, p.settings);
+  R.players[id] = p;
+  R.order.push(id);
+  return id;
+}
+function usePlayer(id) { R.current = id; S = R.players[id]; save(); }
+const save = () => localStorage.setItem(KEY, JSON.stringify(R));
 
 /* ---------------- Helpers ---------------- */
 const $ = (s) => document.querySelector(s);
@@ -210,15 +250,15 @@ function levelInfo(xp) {
   return { level: L, title: TITLES[Math.min(TITLES.length - 1, Math.floor((L - 1) / 2))], pct: (xp - base) / (next - base), toNext: next - xp };
 }
 
-function dayStreak() {
-  const done = new Set(S.sessions.filter((s) => s.completed).map((s) => s.day));
+function dayStreak(p = S) {
+  const done = new Set(p.sessions.filter((s) => s.completed).map((s) => s.day));
   const d = new Date();
   if (!done.has(dayKey(d))) d.setDate(d.getDate() - 1);
   let n = 0;
   while (done.has(dayKey(d))) { n++; d.setDate(d.getDate() - 1); }
   return n;
 }
-const doneToday = () => S.sessions.some((s) => s.completed && s.day === dayKey(Date.now()));
+const doneToday = (p = S) => p.sessions.some((s) => s.completed && s.day === dayKey(Date.now()));
 
 function factLevel(f) {
   // 0 = not tried, 1 = needs work, 2 = getting there, 3 = mastered
@@ -280,7 +320,10 @@ function renderHome() {
   $('#home').innerHTML = `
     <div class="row between">
       <div class="hello white">Hi ${name}! 👋</div>
-      <button class="btn ghost" id="toSettings" style="padding:8px 12px">⚙️</button>
+      <div class="row" style="gap:8px">
+        <button class="btn ghost" id="toPlayers" style="padding:8px 12px;font-size:15px">👥 Switch</button>
+        <button class="btn ghost" id="toSettings" style="padding:8px 12px">⚙️</button>
+      </div>
     </div>
     <div class="card">
       <div class="row between" style="margin-bottom:8px">
@@ -306,7 +349,40 @@ function renderHome() {
   $('#startBtn').onclick = countdown;
   $('#toStats').onclick = () => { renderStats(); show('stats'); };
   $('#toSettings').onclick = () => { renderSettings(); show('settings'); };
+  $('#toPlayers').onclick = renderPlayers;
   show('home');
+}
+
+/* ---------------- Player picker ---------------- */
+function renderPlayers() {
+  const cards = R.order.map((id, i) => {
+    const p = R.players[id], L = levelInfo(p.xp), st = dayStreak(p), td = doneToday(p);
+    return `<button class="card player" data-id="${id}">
+        <div class="avatar" style="background:${COLORS[i % COLORS.length]}">${esc((p.name[0] || '?').toUpperCase())}</div>
+        <div style="flex:1;text-align:left">
+          <div class="pname">${esc(p.name)}</div>
+          <div class="muted" style="font-weight:700;font-size:14px">Level ${L.level} · ${L.title} · 🔥 ${st}</div>
+        </div>
+        <div style="font-size:26px" title="${td ? 'Done today' : 'Not done today'}">${td ? '✅' : '⏳'}</div>
+      </button>`;
+  }).join('');
+  $('#players').innerHTML = `
+    <h1 class="white center" style="margin-top:20px">Who's playing?</h1>
+    ${cards}
+    <form id="addForm" class="card row">
+      <input type="text" id="newName" placeholder="${R.order.length ? 'Add another player' : 'Your name'}" maxlength="20" style="flex:1;width:auto" autocomplete="off">
+      <button class="btn" type="submit">+ Add</button>
+    </form>
+  `;
+  for (const b of document.querySelectorAll('.player')) b.onclick = () => { usePlayer(b.dataset.id); renderHome(); };
+  $('#addForm').onsubmit = (e) => {
+    e.preventDefault();
+    const n = $('#newName').value.trim().slice(0, 20);
+    if (!n) return;
+    usePlayer(addPlayer(n));
+    renderHome();
+  };
+  show('players');
 }
 
 /* ---------------- Game ---------------- */
@@ -634,12 +710,13 @@ function renderSettings() {
     </div>
     <div class="card">
       <h3>For parents</h3>
-      <p class="muted" style="font-weight:600;font-size:14px">Facts he gets wrong or answers slowly come up more often, and a missed fact returns a few questions later. Time spent paused doesn't count. Progress is saved on this phone only.</p>
-      <button class="btn danger" id="resetBtn" style="width:100%">Reset all progress</button>
+      <p class="muted" style="font-weight:600;font-size:14px">Each player has their own progress. Facts a player gets wrong or answers slowly come up more often, and a missed fact returns a few questions later. Time spent paused doesn't count. Progress is saved on this phone only.</p>
+      <button class="btn danger" id="resetBtn" style="width:100%">Reset ${esc(S.name)}'s progress</button>
+      <button class="btn danger" id="removeBtn" style="width:100%;margin-top:10px">Remove ${esc(S.name)}</button>
     </div>
   `;
   const back = () => {
-    S.name = $('#setName').value.trim();
+    S.name = $('#setName').value.trim().slice(0, 20) || S.name;
     S.settings.minutes = parseInt($('#setMin').value, 10);
     S.settings.includeOnes = $('#setOnes').checked;
     S.settings.sound = $('#setSound').checked;
@@ -649,8 +726,16 @@ function renderSettings() {
   $('#backBtn2').onclick = back;
   $('#resetBtn').onclick = () => {
     if (confirm('Erase all sessions, XP and badges? This cannot be undone.')) {
-      const name = S.name;
-      S = fresh(); S.name = name; save(); renderHome();
+      S = R.players[R.current] = fresh(S.name);
+      save(); renderHome();
+    }
+  };
+  $('#removeBtn').onclick = () => {
+    if (confirm(`Remove ${S.name} and all their progress? This cannot be undone.`)) {
+      delete R.players[R.current];
+      R.order = R.order.filter((id) => id !== R.current);
+      R.current = null; S = null;
+      save(); renderPlayers();
     }
   };
 }
@@ -676,7 +761,9 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) pause
 
 if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});
 
-renderHome();
+// With one player go straight in; with several, ask who's playing each time the app opens.
+if (R.order.length === 1) { usePlayer(R.order[0]); renderHome(); }
+else renderPlayers();
 </script>
 </body>
 </html>
