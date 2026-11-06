@@ -111,6 +111,23 @@
   label.set { display: flex; justify-content: space-between; align-items: center; font-weight: 800; padding: 8px 0; gap: 10px; }
   input[type=text], select { font: inherit; font-weight: 700; padding: 10px 12px; border-radius: 12px; border: 2px solid #e0e7ff; min-width: 0; width: 150px; user-select: text; -webkit-user-select: text; }
   input[type=checkbox] { width: 26px; height: 26px; accent-color: var(--accent); }
+  .subject { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+  .subject small { font-size: 15px; font-weight: 800; opacity: .75; }
+  .lastrow { padding: 6px 0; font-weight: 700; font-size: 15px; gap: 8px; }
+  .word { font-size: clamp(72px, 26vw, 120px); font-weight: 800; letter-spacing: 6px; line-height: 1.1; }
+  .mic-wrap { margin-top: auto; display: flex; flex-direction: column; align-items: center; gap: 12px; padding-bottom: 12px; color: #fff; font-weight: 800; font-size: 18px; }
+  .mic { width: 150px; height: 150px; border-radius: 50%; font-size: 64px; background: #fff; box-shadow: 0 8px 0 #c7d2fe; }
+  .mic:active { transform: translateY(4px); box-shadow: 0 4px 0 #c7d2fe; }
+  .mic.on { background: #ef4444; box-shadow: 0 0 0 0 rgba(255,255,255,.7); animation: pulse 1.1s infinite; }
+  .mic:disabled { opacity: .35; }
+  @keyframes pulse { to { box-shadow: 0 0 0 28px rgba(255,255,255,0); } }
+  .tabs { display: flex; gap: 6px; background: rgba(255,255,255,.18); padding: 4px; border-radius: 16px; }
+  .tab { flex: 1; padding: 10px; border-radius: 12px; font-weight: 800; color: #fff; background: transparent; font-size: 16px; }
+  .tab.on { background: #fff; color: var(--accent); }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip { border-radius: 12px; padding: 8px 12px; display: flex; flex-direction: column; align-items: center; font-size: 20px; }
+  .chip small { font-size: 11px; font-weight: 700; }
+  .plain { background: none; padding: 0; font-weight: 800; font-size: inherit; color: var(--ink); }
   .pin-dots { display: flex; justify-content: center; gap: 18px; margin: 24px 0 8px; }
   .pin-dots span { width: 22px; height: 22px; border-radius: 50%; border: 3px solid #fff; }
   .pin-dots span.on { background: #fff; }
@@ -159,6 +176,33 @@
     </div>
   </section>
 
+  <!-- READING -->
+  <section id="read" class="screen hidden">
+    <div class="hud">
+      <button class="btn ghost" id="rPauseBtn" style="padding:8px 14px;font-size:16px">⏸</button>
+      <div id="rTimeLeft">5:00</div>
+      <div id="rScore">⭐ 0</div>
+    </div>
+    <div class="timer-bar"><div id="rTimerFill"></div></div>
+    <div class="combo" id="rCombo">&nbsp;</div>
+    <div class="card qcard" id="rcard">
+      <div class="word" id="rword">cat</div>
+      <div class="correction" id="rmsg"></div>
+      <div class="row hidden" id="rfix" style="justify-content:center;margin-top:12px">
+        <button class="btn" id="rRight">✓ It was right</button>
+        <button class="btn" id="rNext">Next ➡</button>
+      </div>
+    </div>
+    <div class="row between white" style="font-weight:800;padding:0 4px">
+      <span id="rCount">✅ 0 &nbsp; ❌ 0</span>
+      <span id="rAvg">⏱ –</span>
+    </div>
+    <div class="mic-wrap">
+      <button class="mic" id="micBtn" aria-label="Record">🎤</button>
+      <div id="micLabel">Tap 🎤 and read</div>
+    </div>
+  </section>
+
   <!-- RESULTS -->
   <section id="results" class="screen hidden"></section>
 
@@ -179,7 +223,7 @@
 const KEY = 'timesdash.v2', OLD_KEY = 'timesdash.v1';
 const TITLES = ['Rookie', 'Counter', 'Quick Thinker', 'Number Ninja', 'Math Wizard', 'Speed Racer', 'Times Titan', 'Multiplication Master', 'Legend'];
 const BADGES = [
-  { id: 'first',   i: '🎉', name: 'First Dash',    desc: 'Finish a full session' },
+  { id: 'first',   i: '🎉', name: 'First Dash',    desc: 'Finish a full maths session' },
   { id: 'combo10', i: '🔥', name: 'On Fire',       desc: '10 right in a row' },
   { id: 'combo25', i: '☄️', name: 'Blazing',       desc: '25 right in a row' },
   { id: 'combo50', i: '🌋', name: 'Unstoppable',   desc: '50 right in a row' },
@@ -193,11 +237,20 @@ const BADGES = [
   { id: 'day7',    i: '🗓️', name: 'Week Warrior',  desc: '7-day streak' },
   { id: 'day30',   i: '👑', name: 'Monarch',       desc: '30-day streak' },
   { id: 'master',  i: '🧠', name: 'Grandmaster',   desc: 'Every fact green on the grid' },
+  { id: 'read1',   i: '📖', name: 'First Reader',  desc: 'Finish a full reading session' },
+  { id: 'rcombo10',i: '🗣️', name: 'Super Reader',  desc: '10 words right in a row' },
+  { id: 'rwords50',i: '📚', name: 'Bookworm',      desc: 'Read 50 words in one session' },
+  { id: 'rfast',   i: '🐇', name: 'Speedy Reader', desc: 'Average under 3 s (20+ words)' },
 ];
 
 const COLORS = ['#f59e0b', '#ec4899', '#10b981', '#3b82f6', '#8b5cf6', '#ef4444'];
 function fresh(name = '') {
-  return { v: 2, name, xp: 0, sessions: [], facts: {}, badges: {}, settings: { minutes: 5, includeOnes: false, sound: true } };
+  return {
+    v: 2, name, xp: 0, badges: {},
+    sessions: [], facts: {},          // maths
+    readSessions: [], words: {},      // reading
+    settings: { minutes: 5, includeOnes: false, sound: true, maths: true, reading: true, wordLen: 'both', accent: 'en-IN' },
+  };
 }
 
 // R holds every player on this phone; S is the player currently playing.
@@ -214,7 +267,10 @@ if (!R || !R.players) {
     }
   } catch {}
 }
-for (const id of R.order) R.players[id].settings = Object.assign(fresh().settings, R.players[id].settings);
+for (const id of R.order) {
+  const p = R.players[id];
+  R.players[id] = Object.assign(fresh(p.name), p, { settings: Object.assign(fresh().settings, p.settings) });
+}
 
 // A link like .../#players=Name1,Name2 adds those players on first open. Names stay on the phone.
 const seed = location.hash.match(/players=([^&]+)/);
@@ -257,15 +313,24 @@ function levelInfo(xp) {
   return { level: L, title: TITLES[Math.min(TITLES.length - 1, Math.floor((L - 1) / 2))], pct: (xp - base) / (next - base), toNext: next - xp };
 }
 
+// A day counts for the streak if any subject was fully practised.
 function dayStreak(p = S) {
-  const done = new Set(p.sessions.filter((s) => s.completed).map((s) => s.day));
+  const done = new Set(p.sessions.concat(p.readSessions).filter((s) => s.completed).map((s) => s.day));
   const d = new Date();
   if (!done.has(dayKey(d))) d.setDate(d.getDate() - 1);
   let n = 0;
   while (done.has(dayKey(d))) { n++; d.setDate(d.getDate() - 1); }
   return n;
 }
-const doneToday = (p = S) => p.sessions.some((s) => s.completed && s.day === dayKey(Date.now()));
+const didToday = (list) => list.some((s) => s.completed && s.day === dayKey(Date.now()));
+function subjectsOf(p) {
+  const out = [];
+  if (p.settings.maths || !p.settings.reading) out.push('maths');
+  if (p.settings.reading) out.push('reading');
+  return out;
+}
+// "Done today" means every subject this player practises has a full session today.
+const doneToday = (p = S) => subjectsOf(p).every((s) => didToday(s === 'maths' ? p.sessions : p.readSessions));
 
 function factLevel(f) {
   // 0 = not tried, 1 = needs work, 2 = getting there, 3 = mastered
@@ -321,9 +386,15 @@ function confetti(n = 140) {
 /* ---------------- Home ---------------- */
 function renderHome() {
   const L = levelInfo(S.xp), streak = dayStreak(), today = doneToday();
-  const completed = S.sessions.filter((s) => s.completed);
-  const last = completed[completed.length - 1];
   const name = S.name ? esc(S.name) : 'Champ';
+  const SUBJ = {
+    maths: { icon: '✖️', name: 'Maths', list: S.sessions, unit: 'question', start: () => countdown(startGame) },
+    reading: { icon: '📖', name: 'Reading', list: S.readSessions, unit: 'word', start: startReadingFlow },
+  };
+  const subs = subjectsOf(S).map((id) => {
+    const s = SUBJ[id], done = didToday(s.list), comp = s.list.filter((x) => x.completed);
+    return Object.assign({ id, done, last: comp[comp.length - 1] }, s);
+  });
   $('#home').innerHTML = `
     <div class="row between">
       <div class="hello white">Hi ${name}! 👋</div>
@@ -341,11 +412,18 @@ function renderHome() {
       <div class="muted" style="font-size:13px;margin-top:6px;font-weight:700">${S.xp.toLocaleString()} XP · ${L.toNext.toLocaleString()} XP to level ${L.level + 1}</div>
     </div>
     <div class="today ${today ? 'done' : 'todo'}">${today ? "✅ Today's practice is done. Great job!" : `⏳ Today's ${S.settings.minutes}-minute practice is waiting`}</div>
-    <button class="btn primary" id="startBtn">${today ? '▶ Practice again' : '▶ Start'}</button>
-    ${last ? `
-    <div class="card grid2 center">
-      <div><div class="stat-big">${sec(last.avgMs)}</div><div class="stat-label">Last avg / question</div></div>
-      <div><div class="stat-big">${Math.round((100 * last.correct) / Math.max(1, last.total))}%</div><div class="stat-label">Last accuracy</div></div>
+    ${subs.map((s) => `
+    <button class="btn primary subject" data-s="${s.id}">
+      <span>${s.icon} ${subs.length > 1 ? s.name : s.done ? 'Practice again' : 'Start'}</span>
+      <small>${s.done ? '✅ Done today · play again' : `⏳ ${S.settings.minutes} minutes`}</small>
+    </button>`).join('')}
+    ${subs.some((s) => s.last) ? `
+    <div class="card">
+      ${subs.filter((s) => s.last).map((s) => `
+      <div class="row between lastrow">
+        <span>${s.icon} Last ${s.name.toLowerCase()}</span>
+        <span><b>${sec(s.last.avgMs)}</b> / ${s.unit} · <b>${Math.round((100 * s.last.correct) / Math.max(1, s.last.total))}%</b> right</span>
+      </div>`).join('')}
     </div>` : ''}
     <div class="card">
       <div class="row between" style="margin-bottom:10px"><h3>Badges</h3><span class="muted" style="font-weight:800">${Object.keys(S.badges).length}/${BADGES.length}</span></div>
@@ -353,8 +431,8 @@ function renderHome() {
     </div>
     <button class="btn" id="toStats">📊 Progress &amp; stats</button>
   `;
-  $('#startBtn').onclick = countdown;
-  $('#toStats').onclick = () => { renderStats(); show('stats'); };
+  for (const b of document.querySelectorAll('.subject')) b.onclick = () => SUBJ[b.dataset.s].start();
+  $('#toStats').onclick = () => { renderStats(subs[0].id); show('stats'); };
   $('#toSettings').onclick = () => { renderSettings(); show('settings'); };
   $('#toPlayers').onclick = renderPlayers;
   show('home');
@@ -395,12 +473,12 @@ function renderPlayers() {
 /* ---------------- Game ---------------- */
 let G = null;
 
-function countdown() {
+function countdown(next) {
   const ov = $('#overlay');
   ov.classList.remove('hidden');
   let n = 3;
   const tick = () => {
-    if (n === 0) { ov.classList.add('hidden'); startGame(); return; }
+    if (n === 0) { ov.classList.add('hidden'); next(); return; }
     ov.innerHTML = `<div class="countdown">${n}</div>`;
     beep(440, 0.1); n--;
     setTimeout(tick, 700);
@@ -419,10 +497,10 @@ function startGame() {
   requestAnimationFrame(loop);
 }
 
-function syncClock() {
+function syncClock(st = G) {
   const now = performance.now();
-  if (!G.paused) G.elapsed += now - G.last;
-  G.last = now;
+  if (!st.paused) st.elapsed += now - st.last;
+  st.last = now;
 }
 
 function loop() {
@@ -524,8 +602,8 @@ function submit() {
   updateHud();
 }
 
-function floatText(t) {
-  const r = $('#qcard').getBoundingClientRect();
+function floatText(t, sel = '#qcard') {
+  const r = $(sel).getBoundingClientRect();
   const el = document.createElement('div');
   el.className = 'float';
   el.textContent = t;
@@ -548,9 +626,11 @@ function updateHud() {
 }
 
 function pause() {
-  if (!G || G.over || G.paused) return;
-  syncClock();
-  G.paused = true;
+  const st = G || RG; // whichever game (maths or reading) is running
+  if (!st || st.over || st.paused) return;
+  syncClock(st);
+  st.paused = true;
+  if (st.rec) { try { st.rec.abort(); } catch {} }
   const ov = $('#overlay');
   ov.innerHTML = `<div class="card">
       <h2>Paused ⏸</h2>
@@ -560,8 +640,8 @@ function pause() {
       <div class="muted" style="font-size:13px">Stopping early won't count toward the daily streak.</div>
     </div>`;
   ov.classList.remove('hidden');
-  $('#resumeBtn').onclick = () => { ov.classList.add('hidden'); G.last = performance.now(); G.paused = false; };
-  $('#quitBtn').onclick = () => { ov.classList.add('hidden'); G.paused = false; endGame(false); };
+  $('#resumeBtn').onclick = () => { ov.classList.add('hidden'); st.last = performance.now(); st.paused = false; };
+  $('#quitBtn').onclick = () => { ov.classList.add('hidden'); st.paused = false; st === G ? endGame(false) : endReading(false); };
 }
 
 function endGame(completed) {
@@ -612,12 +692,16 @@ function endGame(completed) {
 }
 
 /* ---------------- Results ---------------- */
-function renderResults(s, newBadges, pbs) {
+function renderResults(s, newBadges, pbs, kind = 'maths') {
   const acc = Math.round((100 * s.correct) / s.total);
   const trophy = acc >= 95 ? '🏆' : acc >= 80 ? '🥈' : acc >= 60 ? '🥉' : '💪';
   const cheer = acc >= 95 ? 'Amazing!' : acc >= 80 ? 'Great work!' : acc >= 60 ? 'Nice effort!' : 'Keep practising!';
+  const reading = kind === 'reading';
   const seen = new Set();
-  const mistakes = s.mistakes.filter(([a, b]) => { const k = factKey(a, b); if (seen.has(k)) return false; seen.add(k); return true; });
+  const mistakes = s.mistakes.filter((m) => { const k = reading ? m[0] : factKey(m[0], m[1]); if (seen.has(k)) return false; seen.add(k); return true; });
+  const mistakeRows = reading
+    ? mistakes.map(([w, heard]) => `<div class="mistake"><button class="sayit plain" data-w="${esc(w)}">🔊 ${esc(w)}</button><span class="said">${heard ? `heard “${esc(heard)}”` : ''}</span></div>`)
+    : mistakes.map(([a, b, g]) => `<div class="mistake"><span>${a} × ${b} = ${a * b}</span><span class="said">you said ${g}</span></div>`);
   $('#results').innerHTML = `
     <div class="trophy">${trophy}</div>
     <h1 class="white center">${cheer}</h1>
@@ -626,24 +710,29 @@ function renderResults(s, newBadges, pbs) {
     <div class="card grid2 center">
       <div><div class="stat-big">${s.correct}/${s.total}</div><div class="stat-label">Correct</div></div>
       <div><div class="stat-big">${acc}%</div><div class="stat-label">Accuracy</div></div>
-      <div><div class="stat-big">${sec(s.avgMs)}</div><div class="stat-label">Avg / question</div></div>
+      <div><div class="stat-big">${sec(s.avgMs)}</div><div class="stat-label">Avg / ${reading ? 'word' : 'question'}</div></div>
       <div><div class="stat-big">🔥 ${s.maxCombo}</div><div class="stat-label">Best streak</div></div>
       <div style="grid-column:span 2"><div class="stat-big">⭐ ${s.points.toLocaleString()}${s.completed ? ' + 200' : ''}</div><div class="stat-label">Points earned${s.completed ? ' (+200 finish bonus)' : ''}</div></div>
     </div>
     ${newBadges.length ? `<div class="card"><h3 style="margin-bottom:10px">New badge${newBadges.length > 1 ? 's' : ''}!</h3>
       ${newBadges.map((b) => `<div class="new-badge" style="margin-bottom:8px"><span class="i">${b.i}</span><div>${b.name}<div class="muted" style="font-size:13px">${b.desc}</div></div></div>`).join('')}</div>` : ''}
-    ${mistakes.length ? `<div class="card"><h3 style="margin-bottom:6px">Let's remember these</h3>
-      ${mistakes.map(([a, b, g]) => `<div class="mistake"><span>${a} × ${b} = ${a * b}</span><span class="said">you said ${g}</span></div>`).join('')}</div>`
+    ${mistakes.length ? `<div class="card"><h3 style="margin-bottom:6px">${reading ? "Let's practise these words" : "Let's remember these"}</h3>
+      ${reading ? '<div class="muted" style="font-size:13px;font-weight:700">Tap a word to hear it.</div>' : ''}
+      ${mistakeRows.join('')}</div>`
       : '<div class="card center" style="font-weight:800">No mistakes at all! 🌟</div>'}
     <button class="btn primary" id="homeBtn">🏠 Done</button>
   `;
   $('#homeBtn').onclick = renderHome;
+  for (const b of document.querySelectorAll('#results .sayit')) b.onclick = () => sayWord(b.dataset.w);
   show('results');
 }
 
 /* ---------------- Stats ---------------- */
-function renderStats() {
-  const done = S.sessions.filter((s) => s.total >= 5).slice(-14);
+function renderStats(kind = 'maths') {
+  const reading = kind === 'reading';
+  const list = reading ? S.readSessions : S.sessions;
+  const unit = reading ? 'word' : 'question';
+  const done = list.filter((s) => s.total >= 5).slice(-14);
   const maxAvg = Math.max(4000, ...done.map((s) => s.avgMs));
   const W = 320, H = 140, bw = W / Math.max(done.length, 7);
   const bars = done.map((s, i) => {
@@ -668,31 +757,50 @@ function renderStats() {
   }
   const cols = 10 - lo;
 
-  const recent = S.sessions.slice(-20).reverse();
-  const totalQ = S.sessions.reduce((s, x) => s + x.total, 0);
-  const totalC = S.sessions.reduce((s, x) => s + x.correct, 0);
-  const best = S.sessions.filter((s) => s.total >= 30).reduce((m, s) => Math.min(m, s.avgMs), Infinity);
+  const recent = list.slice(-20).reverse();
+  const totalQ = list.reduce((s, x) => s + x.total, 0);
+  const totalC = list.reduce((s, x) => s + x.correct, 0);
+  const best = list.filter((s) => s.total >= (reading ? 20 : 30)).reduce((m, s) => Math.min(m, s.avgMs), Infinity);
+
+  // Reading: the words she finds hardest (lowest accuracy, then slowest).
+  const tricky = Object.entries(S.words)
+    .map(([w, st]) => ({ w, acc: st.c / st.n, avg: st.c ? st.ms / st.c : 99999, n: st.n }))
+    .filter((x) => x.acc < 1 || x.avg > 4000)
+    .sort((a, b) => a.acc - b.acc || b.avg - a.avg)
+    .slice(0, 15);
+  const subs = subjectsOf(S);
 
   $('#stats').innerHTML = `
     <div class="row between"><h1 class="white">Progress</h1><button class="btn ghost" id="backBtn">← Back</button></div>
+    ${subs.length > 1 ? `<div class="tabs">
+      <button class="tab ${reading ? '' : 'on'}" data-k="maths">✖️ Maths</button>
+      <button class="tab ${reading ? 'on' : ''}" data-k="reading">📖 Reading</button>
+    </div>` : ''}
     <div class="card grid2 center">
-      <div><div class="stat-big">${S.sessions.filter((s) => s.completed).length}</div><div class="stat-label">Sessions done</div></div>
-      <div><div class="stat-big">${totalQ.toLocaleString()}</div><div class="stat-label">Questions</div></div>
+      <div><div class="stat-big">${list.filter((s) => s.completed).length}</div><div class="stat-label">Sessions done</div></div>
+      <div><div class="stat-big">${totalQ.toLocaleString()}</div><div class="stat-label">${reading ? 'Words read' : 'Questions'}</div></div>
       <div><div class="stat-big">${totalQ ? Math.round((100 * totalC) / totalQ) : 0}%</div><div class="stat-label">Overall accuracy</div></div>
       <div><div class="stat-big">${best === Infinity ? '–' : sec(best)}</div><div class="stat-label">Best avg speed</div></div>
     </div>
     <div class="card">
-      <h3>Seconds per question</h3>
+      <h3>Seconds per ${unit}</h3>
       <div class="muted" style="font-size:13px;font-weight:700;margin-bottom:8px">Shorter bars are faster. Colour shows accuracy.</div>
       ${done.length ? `<svg viewBox="0 0 ${W} ${H}" width="100%">${bars}</svg>` : '<div class="muted center" style="padding:20px">Play a session to see your chart.</div>'}
       <div class="legend"><span style="--c:#22c55e">90%+</span><span style="--c:#f59e0b">75–89%</span><span style="--c:#ef4444">under 75%</span></div>
     </div>
+    ${reading ? `
+    <div class="card">
+      <h3>Tricky words</h3>
+      <div class="muted" style="font-size:13px;font-weight:700;margin-bottom:8px">Words missed or read slowly. They come up more often. Tap to hear one.</div>
+      ${tricky.length ? `<div class="chips">${tricky.map((t) => `<button class="chip ${t.acc < 0.75 ? 'm1' : 'm2'} sayit" data-w="${esc(t.w)}"><b>${esc(t.w)}</b><small>${Math.round(t.acc * 100)}%${t.avg < 99999 ? ' · ' + sec(t.avg) : ''}</small></button>`).join('')}</div>`
+        : '<div class="muted center" style="padding:12px">No tricky words yet. 🌟</div>'}
+    </div>` : `
     <div class="card">
       <h3>Times-table map</h3>
       <div class="muted" style="font-size:13px;font-weight:700;margin-bottom:8px">Each square shows average seconds for that fact.</div>
       <div class="mgrid" style="grid-template-columns:28px repeat(${cols}, 1fr)">${grid}</div>
       <div class="legend" style="margin-top:10px"><span style="--c:#86efac">Mastered</span><span style="--c:#fde68a">Getting there</span><span style="--c:#fecaca">Needs practice</span><span style="--c:#f1f5f9">Not tried</span></div>
-    </div>
+    </div>`}
     <div class="card">
       <h3 style="margin-bottom:6px">Recent sessions</h3>
       ${recent.length ? `<table><tr><th>Date</th><th>Right</th><th>Acc</th><th>Avg</th><th>Pts</th></tr>
@@ -701,6 +809,8 @@ function renderStats() {
     </div>
   `;
   $('#backBtn').onclick = renderHome;
+  for (const t of document.querySelectorAll('#stats .tab')) t.onclick = () => renderStats(t.dataset.k);
+  for (const b of document.querySelectorAll('#stats .sayit')) b.onclick = () => sayWord(b.dataset.w);
 }
 
 /* ---------------- Settings ---------------- */
@@ -712,8 +822,23 @@ function renderSettings() {
       <label class="set">Minutes per day
         <select id="setMin">${[2, 5, 10, 15].map((m) => `<option value="${m}" ${S.settings.minutes === m ? 'selected' : ''}>${m} minutes</option>`).join('')}</select>
       </label>
-      <label class="set">Include ×1 facts <input type="checkbox" id="setOnes" ${S.settings.includeOnes ? 'checked' : ''}></label>
       <label class="set">Sounds <input type="checkbox" id="setSound" ${S.settings.sound ? 'checked' : ''}></label>
+    </div>
+    <div class="card">
+      <h3>✖️ Maths</h3>
+      <label class="set">Show maths <input type="checkbox" id="setMaths" ${S.settings.maths ? 'checked' : ''}></label>
+      <label class="set">Include ×1 facts <input type="checkbox" id="setOnes" ${S.settings.includeOnes ? 'checked' : ''}></label>
+    </div>
+    <div class="card">
+      <h3>📖 Reading</h3>
+      <label class="set">Show reading <input type="checkbox" id="setReading" ${S.settings.reading ? 'checked' : ''}></label>
+      <label class="set">Words
+        <select id="setLen">${[['3', '3 letters'], ['4', '4 letters'], ['both', '3 and 4 letters']].map(([v, t]) => `<option value="${v}" ${S.settings.wordLen === v ? 'selected' : ''}>${t}</option>`).join('')}</select>
+      </label>
+      <label class="set">Listen for
+        <select id="setAccent">${[['en-IN', 'Indian English'], ['en-GB', 'British English'], ['en-US', 'American English']].map(([v, t]) => `<option value="${v}" ${S.settings.accent === v ? 'selected' : ''}>${t}</option>`).join('')}</select>
+      </label>
+      <p class="muted" style="font-weight:600;font-size:13px;margin:4px 0 0">Reading uses the phone's speech recognition, which needs the internet. If it mishears a word, tap “It was right”.</p>
     </div>
     <div class="card">
       <h3>For parents</h3>
@@ -727,6 +852,10 @@ function renderSettings() {
     S.settings.minutes = parseInt($('#setMin').value, 10);
     S.settings.includeOnes = $('#setOnes').checked;
     S.settings.sound = $('#setSound').checked;
+    S.settings.maths = $('#setMaths').checked;
+    S.settings.reading = $('#setReading').checked;
+    S.settings.wordLen = $('#setLen').value;
+    S.settings.accent = $('#setAccent').value;
     save();
     renderHome();
   };
@@ -747,6 +876,283 @@ function renderSettings() {
   };
 }
 
+/* ---------------- Reading ---------------- */
+// Simple decodable words. Words that sound like another word list the other spelling in SOUNDS_LIKE,
+// because speech recognition may write either.
+const WORDS3 = `cat bat hat mat rat sat fat pat van can fan man pan ran jam ham bag rag tag wag cap map tap nap lap
+  bed red fed hen pen ten men net wet jet vet pet leg peg beg web yes big dig wig pig fig bin pin tin win fin
+  kid lid hid lip hip dip zip sit hit kit fit six mix fix box fox dog log fog jog hop mop top pop pot hot dot not
+  rod nod job cub tub rub bus bun run fun sun nut cut hut but bug rug hug mug jug pup cup mud bud gum hum yum ant egg end ask`.trim().split(/\s+/);
+const WORDS4 = `frog fish duck milk jump hand sand lamp desk nest tent bell ball doll hill fill shop ship chip chin that this
+  then with drum crab flag clap plum spot stop swim snap grin belt gift list best rest help sock rock lock kick back pack
+  ring sing king wing song long bath moth much rich park star card farm corn fork bird girl turn tall wall cold gold hold
+  fast last mask pink sink bank tank pond book look cook moon soon tree feet seed jeep cake bike home kite rope`.trim().split(/\s+/);
+const SOUNDS_LIKE = { sun: ['son'], ten: ['10'], six: ['6'], red: ['read'], ant: ['aunt'], not: ['knot'], ring: ['wring'], feet: ['feat'], but: ['butt'] };
+const MIC_ERRORS = {
+  'no-speech': "I didn't hear anything. Tap 🎤 and read again.",
+  'not-allowed': 'Please allow the microphone for Times Dash, then tap 🎤.',
+  'service-not-allowed': 'Please allow the microphone for Times Dash, then tap 🎤.',
+  'network': 'Listening needs the internet. Check Wi-Fi and tap 🎤 again.',
+  'audio-capture': "The microphone isn't working. Tap 🎤 to try again.",
+};
+const speechRec = () => window.SpeechRecognition || window.webkitSpeechRecognition;
+const comboMult = (c) => (c >= 20 ? 4 : c >= 10 ? 3 : c >= 5 ? 2 : 1);
+let RG = null;
+
+function sayWord(w) {
+  if (!('speechSynthesis' in window)) return;
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(w);
+  u.lang = (S && S.settings.accent) || 'en-IN';
+  u.rate = 0.8;
+  speechSynthesis.speak(u);
+}
+
+function infoOverlay(icon, title, text) {
+  const ov = $('#overlay');
+  ov.innerHTML = `<div class="card"><div style="font-size:48px">${icon}</div><h2>${title}</h2>
+    <div class="muted" style="font-weight:700">${text}</div><button class="btn primary" id="okBtn">OK</button></div>`;
+  ov.classList.remove('hidden');
+  $('#okBtn').onclick = () => ov.classList.add('hidden');
+}
+
+function startReadingFlow() {
+  if (!speechRec()) return infoOverlay('🎤', 'Reading needs Chrome', "This browser can't listen. Open Times Dash in Chrome on Android.");
+  countdown(startReading);
+}
+
+function startReading() {
+  RG = {
+    duration: S.settings.minutes * 60000, elapsed: 0, last: performance.now(), paused: false, over: false,
+    word: null, shownAt: 0, results: [], combo: 0, prevCombo: 0, maxCombo: 0, points: 0, retry: [], recent: [],
+    rec: null, listening: false, waiting: false, startedAt: Date.now(),
+  };
+  show('read');
+  updateReadHud();
+  nextWord();
+  requestAnimationFrame(readLoop);
+}
+
+function readLoop() {
+  if (!RG || RG.over) return;
+  syncClock(RG);
+  const left = Math.max(0, RG.duration - RG.elapsed), s = Math.ceil(left / 1000);
+  $('#rTimeLeft').textContent = Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+  $('#rTimerFill').style.width = (100 * left) / RG.duration + '%';
+  $('#rTimerFill').style.background = left < 30000 ? '#fca5a5' : '#fde68a';
+  if (left <= 0) return endReading(true);
+  requestAnimationFrame(readLoop);
+}
+
+function wordPool() {
+  const L = S.settings.wordLen;
+  return L === '3' ? WORDS3 : L === '4' ? WORDS4 : WORDS3.concat(WORDS4);
+}
+
+function pickWord() {
+  // A missed word comes back a few words later; otherwise missed or slow words are picked more often.
+  const due = RG.retry.findIndex((r) => r.at <= RG.results.length);
+  if (due >= 0) return RG.retry.splice(due, 1)[0].w;
+  const pool = [];
+  let total = 0;
+  for (const w of wordPool()) {
+    if (RG.recent.includes(w)) continue;
+    const st = S.words[w];
+    let wt = 1;
+    if (!st) wt += 0.5;
+    else {
+      const acc = st.c / st.n, avg = st.c ? st.ms / st.c : 6000;
+      wt += (1 - acc) * 5 + Math.min(3, Math.max(0, (avg - 2500) / 1000));
+    }
+    pool.push({ w, wt }); total += wt;
+  }
+  let r = Math.random() * total;
+  for (const p of pool) { if ((r -= p.wt) <= 0) return p.w; }
+  return pool[pool.length - 1].w;
+}
+
+function nextWord() {
+  if (!RG || RG.over) return;
+  const w = pickWord();
+  RG.word = w;
+  RG.recent.push(w);
+  if (RG.recent.length > 12) RG.recent.shift();
+  syncClock(RG);
+  RG.shownAt = RG.elapsed;
+  RG.waiting = false;
+  RG.busy = false;
+  $('#rword').textContent = w;
+  $('#rcard').className = 'card qcard';
+  $('#rmsg').textContent = '';
+  $('#rfix').classList.add('hidden');
+  setMic(false);
+}
+
+function setMic(on) {
+  RG.listening = on;
+  const b = $('#micBtn');
+  b.classList.toggle('on', on);
+  b.disabled = RG.waiting;
+  $('#micLabel').textContent = RG.waiting ? ' ' : on ? 'Listening… read the word' : 'Tap 🎤 and read';
+}
+
+const heardWord = (text, word) => {
+  const accept = [word].concat(SOUNDS_LIKE[word] || []);
+  return text.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().split(' ').some((x) => accept.includes(x));
+};
+
+function listen() {
+  if (!RG || RG.over || RG.paused || RG.waiting || RG.busy) return;
+  if (RG.listening) { try { RG.rec.stop(); } catch {} return; }
+  const rec = new (speechRec())();
+  rec.lang = S.settings.accent;
+  rec.interimResults = true; // lets us accept the word as soon as it's heard
+  rec.maxAlternatives = 5;
+  rec.continuous = false;
+  const word = RG.word;
+  let settled = false;
+  const settle = () => { settled = true; if (RG) { RG.rec = null; setMic(false); } };
+  const stop = () => { try { rec.abort(); } catch {} };
+
+  rec.onresult = (e) => {
+    if (settled || !RG || RG.word !== word) return;
+    let best = '';
+    for (let i = 0; i < e.results.length; i++) {
+      for (let j = 0; j < e.results[i].length; j++) {
+        const t = e.results[i][j].transcript;
+        if (!best) best = t;
+        if (heardWord(t, word)) { settle(); stop(); return judgeWord(true, t); }
+      }
+    }
+    if (e.results[e.results.length - 1].isFinal) { settle(); stop(); judgeWord(false, best); }
+  };
+  rec.onerror = (e) => {
+    if (settled) return;
+    settle();
+    if (e.error !== 'aborted' && RG) $('#rmsg').textContent = MIC_ERRORS[e.error] || 'Something went wrong. Tap 🎤 to try again.';
+  };
+  rec.onend = () => {
+    if (settled) return;
+    settle();
+    if (RG) $('#rmsg').textContent = "I didn't catch that. Tap 🎤 and read again.";
+  };
+
+  RG.rec = rec;
+  $('#rmsg').textContent = '';
+  setMic(true);
+  try { rec.start(); } catch { settle(); }
+}
+
+function judgeWord(ok, heardText) {
+  if (!RG || RG.over) return;
+  syncClock(RG);
+  const w = RG.word, ms = RG.elapsed - RG.shownAt;
+  const st = (S.words[w] = S.words[w] || { n: 0, c: 0, ms: 0 });
+  st.n++;
+  RG.results.push({ w, ok, ms, heard: (heardText || '').trim() });
+  if (ok) return rewardWord(ms, st);
+
+  RG.prevCombo = RG.combo;
+  RG.combo = 0;
+  RG.retry.push({ w, at: RG.results.length + 3 });
+  RG.waiting = true;
+  $('#rcard').classList.add('bad');
+  $('#rmsg').textContent = `I heard “${(heardText || '').trim() || '…'}”`;
+  $('#rfix').classList.remove('hidden');
+  setMic(false);
+  sndBad();
+  setTimeout(() => sayWord(w), 350);
+  updateReadHud();
+}
+
+function rewardWord(ms, st) {
+  st.c++;
+  st.ms += Math.min(ms, 15000); // long pauses are capped so they don't skew her averages
+  RG.combo++;
+  RG.maxCombo = Math.max(RG.maxCombo, RG.combo);
+  const speed = ms < 2000 ? 10 : ms < 3500 ? 6 : ms < 5000 ? 3 : 0;
+  const pts = (10 + speed) * comboMult(RG.combo);
+  RG.points += pts;
+  floatText('+' + pts, '#rcard');
+  $('#rcard').className = 'card qcard good';
+  sndGood(RG.combo);
+  updateReadHud();
+  RG.busy = true; // ignore the mic during the short "correct" flash
+  setTimeout(nextWord, 450);
+}
+
+// The parent (or child) says the app misheard: count it as right.
+function markRight() {
+  if (!RG || !RG.waiting) return;
+  const r = RG.results[RG.results.length - 1];
+  if (!r || r.ok) return;
+  r.ok = true;
+  r.fixed = true;
+  RG.retry = RG.retry.filter((x) => x.w !== r.w);
+  RG.combo = RG.prevCombo;
+  RG.waiting = false;
+  $('#rfix').classList.add('hidden');
+  $('#rmsg').textContent = '';
+  if ('speechSynthesis' in window) speechSynthesis.cancel();
+  rewardWord(r.ms, S.words[r.w]);
+}
+
+function updateReadHud() {
+  const good = RG.results.filter((r) => r.ok).length, bad = RG.results.length - good;
+  $('#rScore').textContent = '⭐ ' + RG.points.toLocaleString();
+  $('#rCount').innerHTML = `✅ ${good} &nbsp; ❌ ${bad}`;
+  const avg = RG.results.length ? RG.results.reduce((s, r) => s + r.ms, 0) / RG.results.length : 0;
+  $('#rAvg').textContent = '⏱ ' + (RG.results.length ? sec(avg) : '–');
+  const c = $('#rCombo'), m = comboMult(RG.combo);
+  c.innerHTML = RG.combo >= 3 ? `🔥 ${RG.combo} in a row${m > 1 ? ` · x${m} points` : ''}` : '&nbsp;';
+  if (RG.combo >= 3) { c.classList.remove('pop'); void c.offsetWidth; c.classList.add('pop'); }
+}
+
+function endReading(completed) {
+  if (!RG || RG.over) return;
+  RG.over = true;
+  if (RG.rec) { try { RG.rec.abort(); } catch {} }
+  const list = RG.results, total = list.length, correct = list.filter((r) => r.ok).length;
+  if (total === 0) { save(); RG = null; renderHome(); return; }
+
+  const prevBest = S.readSessions.filter((s) => s.total >= 20).reduce((m, s) => Math.min(m, s.avgMs), Infinity);
+  const prevMost = S.readSessions.reduce((m, s) => Math.max(m, s.correct), 0);
+  const session = {
+    day: dayKey(RG.startedAt), at: RG.startedAt, completed, minutes: S.settings.minutes,
+    total, correct, avgMs: list.reduce((s, r) => s + r.ms, 0) / total,
+    points: RG.points, maxCombo: RG.maxCombo,
+    mistakes: list.filter((r) => !r.ok).map((r) => [r.w, r.heard]),
+  };
+  S.readSessions.push(session);
+  if (S.readSessions.length > 400) S.readSessions.splice(0, S.readSessions.length - 400);
+  const levelBefore = levelInfo(S.xp).level;
+  S.xp += RG.points + (completed ? 200 : 0);
+  const levelAfter = levelInfo(S.xp).level;
+
+  const streak = dayStreak();
+  const earned = {
+    read1: completed, rcombo10: RG.maxCombo >= 10, rwords50: total >= 50, rfast: total >= 20 && session.avgMs < 3000,
+    day3: streak >= 3, day7: streak >= 7, day30: streak >= 30,
+  };
+  const newBadges = BADGES.filter((b) => earned[b.id] && !S.badges[b.id]);
+  for (const b of newBadges) S.badges[b.id] = Date.now();
+  save();
+
+  const pbs = [];
+  if (total >= 20 && session.avgMs < prevBest) pbs.push(prevBest === Infinity ? 'First reading speed record set!' : `New reading record! ${sec(session.avgMs)} (was ${sec(prevBest)})`);
+  if (correct > prevMost && prevMost > 0) pbs.push(`Most words ever: ${correct}!`);
+  if (levelAfter > levelBefore) pbs.push(`Level up! You're now level ${levelAfter} 🎊`);
+
+  renderResults(session, newBadges, pbs, 'reading');
+  RG = null;
+  if (completed || newBadges.length || pbs.length) { confetti(); sndFanfare(); }
+}
+
+$('#micBtn').addEventListener('pointerdown', (e) => { e.preventDefault(); listen(); });
+$('#rPauseBtn').onclick = pause;
+$('#rRight').onclick = markRight;
+$('#rNext').onclick = () => { if (RG && RG.waiting) nextWord(); };
+
 /* ---------------- Input wiring ---------------- */
 $('#keypad').addEventListener('pointerdown', (e) => {
   const b = e.target.closest('.key');
@@ -757,6 +1163,11 @@ $('#keypad').addEventListener('pointerdown', (e) => {
   press(b.dataset.k);
 });
 document.addEventListener('keydown', (e) => {
+  if (RG) {
+    if (e.key === ' ') { e.preventDefault(); listen(); }
+    else if (e.key === 'Escape') pause();
+    return;
+  }
   if (!G) return;
   if (/^[0-9]$/.test(e.key)) press(e.key);
   else if (e.key === 'Backspace') press('del');
