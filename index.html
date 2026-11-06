@@ -1,0 +1,682 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#4f46e5">
+<meta name="mobile-web-app-capable" content="yes">
+<title>Times Dash</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+  :root {
+    --bg1: #4f46e5; --bg2: #7c3aed;
+    --card: #ffffff; --ink: #1e1b4b; --muted: #6b7280;
+    --good: #16a34a; --good-bg: #dcfce7;
+    --bad: #dc2626; --bad-bg: #fee2e2;
+    --gold: #f59e0b; --accent: #4f46e5;
+    --radius: 20px;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    font-family: ui-rounded, "SF Pro Rounded", "Nunito", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: linear-gradient(160deg, var(--bg1), var(--bg2));
+    color: var(--ink);
+    overscroll-behavior: none;
+    user-select: none; -webkit-user-select: none;
+    touch-action: manipulation;
+  }
+  #app { max-width: 480px; margin: 0 auto; min-height: 100%; padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom)); display: flex; flex-direction: column; }
+  .screen { display: flex; flex-direction: column; gap: 14px; flex: 1; }
+  .hidden { display: none !important; }
+  .card { background: var(--card); border-radius: var(--radius); padding: 16px; box-shadow: 0 8px 24px rgba(30, 27, 75, .18); }
+  h1, h2, h3 { margin: 0; }
+  .white { color: #fff; }
+  .muted { color: var(--muted); }
+  .row { display: flex; align-items: center; gap: 10px; }
+  .between { justify-content: space-between; }
+  .center { text-align: center; }
+  button { font: inherit; border: 0; cursor: pointer; color: inherit; }
+  .btn { border-radius: 16px; padding: 14px 18px; font-weight: 800; font-size: 18px; background: #eef2ff; color: var(--accent); }
+  .btn.primary { background: linear-gradient(180deg, #fbbf24, #f59e0b); color: #451a03; font-size: 26px; padding: 20px; box-shadow: 0 6px 0 #b45309; }
+  .btn.primary:active { transform: translateY(4px); box-shadow: 0 2px 0 #b45309; }
+  .btn.ghost { background: rgba(255,255,255,.18); color: #fff; }
+  .btn.danger { background: var(--bad-bg); color: var(--bad); }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+  /* Home */
+  .hello { font-size: 28px; font-weight: 900; }
+  .level-bar { height: 14px; background: #e0e7ff; border-radius: 99px; overflow: hidden; }
+  .level-bar > div { height: 100%; background: linear-gradient(90deg, #818cf8, #4f46e5); border-radius: 99px; transition: width .6s; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 99px; background: #eef2ff; font-weight: 800; color: var(--accent); font-size: 15px; }
+  .stat-big { font-size: 30px; font-weight: 900; }
+  .stat-label { font-size: 13px; color: var(--muted); font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+  .badges { display: grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: 8px; }
+  .badge { text-align: center; padding: 8px 4px; border-radius: 14px; background: #f5f3ff; font-size: 11px; font-weight: 800; line-height: 1.15; }
+  .badge .i { font-size: 28px; display: block; margin-bottom: 4px; }
+  .badge.locked { filter: grayscale(1); opacity: .35; }
+  .today { font-weight: 800; padding: 10px 14px; border-radius: 14px; text-align: center; }
+  .today.done { background: var(--good-bg); color: var(--good); }
+  .today.todo { background: #fef3c7; color: #92400e; }
+
+  /* Game */
+  .hud { display: flex; justify-content: space-between; align-items: center; color: #fff; font-weight: 900; font-size: 20px; }
+  .timer-bar { height: 10px; background: rgba(255,255,255,.25); border-radius: 99px; overflow: hidden; }
+  .timer-bar > div { height: 100%; background: #fde68a; width: 100%; }
+  .combo { font-size: 18px; min-height: 28px; text-align: center; color: #fde68a; font-weight: 900; }
+  .combo.pop { animation: pop .3s; }
+  @keyframes pop { 50% { transform: scale(1.35); } }
+  .qcard { text-align: center; padding: 26px 12px; transition: background .15s; }
+  .qcard.good { background: var(--good-bg); }
+  .qcard.bad { background: var(--bad-bg); animation: shake .35s; }
+  @keyframes shake { 20%,60% { transform: translateX(-8px); } 40%,80% { transform: translateX(8px); } }
+  .question { font-size: clamp(40px, 14vw, 64px); font-weight: 900; letter-spacing: 2px; white-space: nowrap; }
+  .answer { display: inline-block; min-width: 1.6em; border-bottom: 5px solid var(--accent); color: var(--accent); }
+  .answer.empty { color: #c7d2fe; }
+  .correction { min-height: 26px; font-weight: 800; color: var(--bad); font-size: 20px; margin-top: 6px; }
+  .keypad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: auto; }
+  .key { background: #fff; border-radius: 18px; font-size: 34px; font-weight: 900; padding: 16px 0; box-shadow: 0 5px 0 #c7d2fe; color: var(--ink); }
+  .key:active, .key.down { transform: translateY(3px); box-shadow: 0 2px 0 #c7d2fe; }
+  .key.go { background: var(--good); color: #fff; box-shadow: 0 5px 0 #166534; }
+  .key.del { background: #e0e7ff; }
+  .float { position: fixed; pointer-events: none; font-weight: 900; font-size: 26px; color: #fde68a; text-shadow: 0 2px 4px rgba(0,0,0,.3); animation: floatUp .8s forwards; }
+  @keyframes floatUp { to { transform: translateY(-60px); opacity: 0; } }
+  .overlay { position: fixed; inset: 0; background: rgba(30,27,75,.7); display: flex; align-items: center; justify-content: center; padding: 24px; z-index: 10; }
+  .overlay .card { width: 100%; max-width: 360px; display: flex; flex-direction: column; gap: 12px; text-align: center; }
+  .countdown { font-size: 120px; font-weight: 900; color: #fff; animation: pop .8s infinite; }
+
+  /* Results & stats */
+  .trophy { font-size: 64px; text-align: center; }
+  .mistake { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #f1f5f9; font-weight: 700; }
+  .mistake:last-child { border-bottom: 0; }
+  .mistake .said { color: var(--bad); }
+  .new-badge { display: flex; align-items: center; gap: 12px; padding: 10px; border-radius: 14px; background: #fef3c7; font-weight: 800; }
+  .new-badge .i { font-size: 34px; }
+  .pb { background: linear-gradient(90deg, #fde68a, #fbbf24); color: #451a03; font-weight: 900; text-align: center; border-radius: 14px; padding: 10px; }
+  .mgrid { display: grid; grid-template-columns: 28px repeat(9, 1fr); gap: 3px; font-size: 12px; font-weight: 800; }
+  .mgrid div { aspect-ratio: 1; display: flex; align-items: center; justify-content: center; border-radius: 6px; }
+  .mgrid .h { color: var(--muted); }
+  .m0 { background: #f1f5f9; color: #cbd5e1; }
+  .m1 { background: #fecaca; color: #7f1d1d; }
+  .m2 { background: #fde68a; color: #78350f; }
+  .m3 { background: #86efac; color: #14532d; }
+  .legend { display: flex; gap: 10px; flex-wrap: wrap; font-size: 12px; font-weight: 700; color: var(--muted); }
+  .legend span::before { content: ""; display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 4px; vertical-align: -2px; background: var(--c); }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { padding: 6px 4px; text-align: right; border-bottom: 1px solid #f1f5f9; }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--muted); font-size: 12px; text-transform: uppercase; }
+  label.set { display: flex; justify-content: space-between; align-items: center; font-weight: 800; padding: 8px 0; gap: 10px; }
+  input[type=text], select { font: inherit; font-weight: 700; padding: 10px 12px; border-radius: 12px; border: 2px solid #e0e7ff; min-width: 0; width: 150px; user-select: text; -webkit-user-select: text; }
+  input[type=checkbox] { width: 26px; height: 26px; accent-color: var(--accent); }
+  #confetti { position: fixed; inset: 0; pointer-events: none; z-index: 20; }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- HOME -->
+  <section id="home" class="screen"></section>
+
+  <!-- GAME -->
+  <section id="game" class="screen hidden">
+    <div class="hud">
+      <button class="btn ghost" id="pauseBtn" style="padding:8px 14px;font-size:16px">⏸</button>
+      <div id="timeLeft">10:00</div>
+      <div id="score">⭐ 0</div>
+    </div>
+    <div class="timer-bar"><div id="timerFill"></div></div>
+    <div class="combo" id="combo">&nbsp;</div>
+    <div class="card qcard" id="qcard">
+      <div class="question"><span id="qa">9</span> × <span id="qb">5</span> = <span class="answer empty" id="ans">?</span></div>
+      <div class="correction" id="correction"></div>
+    </div>
+    <div class="row between white" style="font-weight:800;padding:0 4px">
+      <span id="countInfo">✅ 0 &nbsp; ❌ 0</span>
+      <span id="avgInfo">⏱ –</span>
+    </div>
+    <div class="keypad" id="keypad">
+      <button class="key" data-k="1">1</button><button class="key" data-k="2">2</button><button class="key" data-k="3">3</button>
+      <button class="key" data-k="4">4</button><button class="key" data-k="5">5</button><button class="key" data-k="6">6</button>
+      <button class="key" data-k="7">7</button><button class="key" data-k="8">8</button><button class="key" data-k="9">9</button>
+      <button class="key del" data-k="del">⌫</button><button class="key" data-k="0">0</button><button class="key go" data-k="go">✓</button>
+    </div>
+  </section>
+
+  <!-- RESULTS -->
+  <section id="results" class="screen hidden"></section>
+
+  <!-- STATS -->
+  <section id="stats" class="screen hidden"></section>
+
+  <!-- SETTINGS -->
+  <section id="settings" class="screen hidden"></section>
+</div>
+
+<div class="overlay hidden" id="overlay"></div>
+<canvas id="confetti"></canvas>
+
+<script>
+'use strict';
+
+/* ---------------- Data ---------------- */
+const KEY = 'timesdash.v1';
+const TITLES = ['Rookie', 'Counter', 'Quick Thinker', 'Number Ninja', 'Math Wizard', 'Speed Racer', 'Times Titan', 'Multiplication Master', 'Legend'];
+const BADGES = [
+  { id: 'first',   i: '🎉', name: 'First Dash',    desc: 'Finish a full session' },
+  { id: 'combo10', i: '🔥', name: 'On Fire',       desc: '10 right in a row' },
+  { id: 'combo25', i: '☄️', name: 'Blazing',       desc: '25 right in a row' },
+  { id: 'combo50', i: '🌋', name: 'Unstoppable',   desc: '50 right in a row' },
+  { id: 'q100',    i: '💯', name: 'Century',       desc: '100 answers in one session' },
+  { id: 'q200',    i: '🚀', name: 'Rocket',        desc: '200 answers in one session' },
+  { id: 'speed3',  i: '⚡', name: 'Quick',         desc: 'Average under 3 s (30+ answers)' },
+  { id: 'speed2',  i: '🏎️', name: 'Lightning',     desc: 'Average under 2 s (30+ answers)' },
+  { id: 'acc95',   i: '🎯', name: 'Sharpshooter',  desc: '95% right (50+ answers)' },
+  { id: 'perfect', i: '💎', name: 'Flawless',      desc: '100% right (50+ answers)' },
+  { id: 'day3',    i: '📅', name: 'Habit',         desc: '3-day streak' },
+  { id: 'day7',    i: '🗓️', name: 'Week Warrior',  desc: '7-day streak' },
+  { id: 'day30',   i: '👑', name: 'Monarch',       desc: '30-day streak' },
+  { id: 'master',  i: '🧠', name: 'Grandmaster',   desc: 'Every fact green on the grid' },
+];
+
+function fresh() {
+  return { v: 1, name: '', xp: 0, sessions: [], facts: {}, badges: {}, settings: { minutes: 10, includeOnes: false, sound: true } };
+}
+let S;
+try { S = Object.assign(fresh(), JSON.parse(localStorage.getItem(KEY)) || {}); } catch { S = fresh(); }
+S.settings = Object.assign(fresh().settings, S.settings);
+const save = () => localStorage.setItem(KEY, JSON.stringify(S));
+
+/* ---------------- Helpers ---------------- */
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const sec = (ms) => (ms / 1000).toFixed(1) + 's';
+const dayKey = (t) => { const d = new Date(t); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
+const factKey = (a, b) => Math.min(a, b) + 'x' + Math.max(a, b);
+const minFactor = () => (S.settings.includeOnes ? 1 : 2);
+
+function show(id) {
+  for (const s of document.querySelectorAll('.screen')) s.classList.toggle('hidden', s.id !== id);
+  window.scrollTo(0, 0);
+}
+
+function levelInfo(xp) {
+  // XP needed to reach level L: 400 * L * (L - 1)
+  let L = 1;
+  while (xp >= 400 * (L + 1) * L) L++;
+  const base = 400 * L * (L - 1), next = 400 * (L + 1) * L;
+  return { level: L, title: TITLES[Math.min(TITLES.length - 1, Math.floor((L - 1) / 2))], pct: (xp - base) / (next - base), toNext: next - xp };
+}
+
+function dayStreak() {
+  const done = new Set(S.sessions.filter((s) => s.completed).map((s) => s.day));
+  const d = new Date();
+  if (!done.has(dayKey(d))) d.setDate(d.getDate() - 1);
+  let n = 0;
+  while (done.has(dayKey(d))) { n++; d.setDate(d.getDate() - 1); }
+  return n;
+}
+const doneToday = () => S.sessions.some((s) => s.completed && s.day === dayKey(Date.now()));
+
+function factLevel(f) {
+  // 0 = not tried, 1 = needs work, 2 = getting there, 3 = mastered
+  if (!f || f.n === 0) return 0;
+  const acc = f.c / f.n, avg = f.c ? f.ms / f.c : Infinity;
+  if (f.n >= 3 && acc >= 0.9 && avg < 3000) return 3;
+  if (acc >= 0.75 && avg < 5000) return 2;
+  return 1;
+}
+function allMastered() {
+  for (let a = minFactor(); a <= 9; a++) for (let b = a; b <= 9; b++) if (factLevel(S.facts[factKey(a, b)]) < 3) return false;
+  return true;
+}
+
+/* ---------------- Sound & haptics ---------------- */
+let actx;
+function beep(freq, dur = 0.08, type = 'sine', vol = 0.15) {
+  if (!S.settings.sound) return;
+  try {
+    actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+    const o = actx.createOscillator(), g = actx.createGain();
+    o.type = type; o.frequency.value = freq;
+    g.gain.setValueAtTime(vol, actx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, actx.currentTime + dur);
+    o.connect(g).connect(actx.destination);
+    o.start(); o.stop(actx.currentTime + dur);
+  } catch {}
+}
+const sndGood = (combo) => beep(660 + Math.min(combo, 20) * 20, 0.09, 'triangle');
+const sndBad = () => { beep(180, 0.2, 'sawtooth', 0.08); if (navigator.vibrate) navigator.vibrate(120); };
+const sndFanfare = () => [523, 659, 784, 1047].forEach((f, i) => setTimeout(() => beep(f, 0.18, 'triangle'), i * 130));
+
+/* ---------------- Confetti ---------------- */
+function confetti(n = 140) {
+  const cv = $('#confetti'), ctx = cv.getContext('2d');
+  cv.width = innerWidth; cv.height = innerHeight;
+  const colors = ['#fbbf24', '#34d399', '#60a5fa', '#f472b6', '#a78bfa', '#f87171'];
+  const ps = Array.from({ length: n }, () => ({
+    x: innerWidth / 2, y: innerHeight / 3, vx: (Math.random() - 0.5) * 14, vy: Math.random() * -14 - 4,
+    s: 6 + Math.random() * 6, c: colors[(Math.random() * colors.length) | 0], r: Math.random() * 6, vr: (Math.random() - 0.5) * 0.4,
+  }));
+  let frames = 0;
+  (function step() {
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    for (const p of ps) {
+      p.vy += 0.35; p.x += p.vx; p.y += p.vy; p.r += p.vr;
+      ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.r); ctx.fillStyle = p.c; ctx.fillRect(-p.s / 2, -p.s / 4, p.s, p.s / 2); ctx.restore();
+    }
+    if (++frames < 180) requestAnimationFrame(step); else ctx.clearRect(0, 0, cv.width, cv.height);
+  })();
+}
+
+/* ---------------- Home ---------------- */
+function renderHome() {
+  const L = levelInfo(S.xp), streak = dayStreak(), today = doneToday();
+  const completed = S.sessions.filter((s) => s.completed);
+  const last = completed[completed.length - 1];
+  const name = S.name ? esc(S.name) : 'Champ';
+  $('#home').innerHTML = `
+    <div class="row between">
+      <div class="hello white">Hi ${name}! 👋</div>
+      <button class="btn ghost" id="toSettings" style="padding:8px 12px">⚙️</button>
+    </div>
+    <div class="card">
+      <div class="row between" style="margin-bottom:8px">
+        <div><div class="stat-label">Level ${L.level}</div><h2>${L.title}</h2></div>
+        <div class="pill">🔥 ${streak} day${streak === 1 ? '' : 's'}</div>
+      </div>
+      <div class="level-bar"><div style="width:${Math.round(L.pct * 100)}%"></div></div>
+      <div class="muted" style="font-size:13px;margin-top:6px;font-weight:700">${S.xp.toLocaleString()} XP · ${L.toNext.toLocaleString()} XP to level ${L.level + 1}</div>
+    </div>
+    <div class="today ${today ? 'done' : 'todo'}">${today ? "✅ Today's practice is done. Great job!" : `⏳ Today's ${S.settings.minutes}-minute practice is waiting`}</div>
+    <button class="btn primary" id="startBtn">${today ? '▶ Practice again' : '▶ Start'}</button>
+    ${last ? `
+    <div class="card grid2 center">
+      <div><div class="stat-big">${sec(last.avgMs)}</div><div class="stat-label">Last avg / question</div></div>
+      <div><div class="stat-big">${Math.round((100 * last.correct) / Math.max(1, last.total))}%</div><div class="stat-label">Last accuracy</div></div>
+    </div>` : ''}
+    <div class="card">
+      <div class="row between" style="margin-bottom:10px"><h3>Badges</h3><span class="muted" style="font-weight:800">${Object.keys(S.badges).length}/${BADGES.length}</span></div>
+      <div class="badges">${BADGES.map((b) => `<div class="badge ${S.badges[b.id] ? '' : 'locked'}" title="${b.desc}"><span class="i">${b.i}</span>${b.name}</div>`).join('')}</div>
+    </div>
+    <button class="btn" id="toStats">📊 Progress &amp; stats</button>
+  `;
+  $('#startBtn').onclick = countdown;
+  $('#toStats').onclick = () => { renderStats(); show('stats'); };
+  $('#toSettings').onclick = () => { renderSettings(); show('settings'); };
+  show('home');
+}
+
+/* ---------------- Game ---------------- */
+let G = null;
+
+function countdown() {
+  const ov = $('#overlay');
+  ov.classList.remove('hidden');
+  let n = 3;
+  const tick = () => {
+    if (n === 0) { ov.classList.add('hidden'); startGame(); return; }
+    ov.innerHTML = `<div class="countdown">${n}</div>`;
+    beep(440, 0.1); n--;
+    setTimeout(tick, 700);
+  };
+  tick();
+}
+
+function startGame() {
+  G = {
+    duration: S.settings.minutes * 60000, elapsed: 0, last: performance.now(), paused: false, over: false,
+    q: null, input: '', locked: false, results: [], combo: 0, maxCombo: 0, points: 0, retry: [], startedAt: Date.now(),
+  };
+  show('game');
+  updateHud();
+  nextQuestion();
+  requestAnimationFrame(loop);
+}
+
+function syncClock() {
+  const now = performance.now();
+  if (!G.paused) G.elapsed += now - G.last;
+  G.last = now;
+}
+
+function loop() {
+  if (!G || G.over) return;
+  syncClock();
+  const left = Math.max(0, G.duration - G.elapsed);
+  const s = Math.ceil(left / 1000);
+  $('#timeLeft').textContent = Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+  $('#timerFill').style.width = (100 * left) / G.duration + '%';
+  $('#timerFill').style.background = left < 30000 ? '#fca5a5' : '#fde68a';
+  if (left <= 0) return endGame(true);
+  requestAnimationFrame(loop);
+}
+
+function pickFact() {
+  // A fact he got wrong comes back a few questions later.
+  const due = G.retry.findIndex((r) => r.at <= G.results.length);
+  if (due >= 0) return G.retry.splice(due, 1)[0].f;
+  const lo = minFactor(), pool = [];
+  let total = 0;
+  for (let a = lo; a <= 9; a++) for (let b = lo; b <= 9; b++) {
+    if (G.q && G.q.a === a && G.q.b === b) continue;
+    const f = S.facts[factKey(a, b)];
+    let w = 1;
+    if (!f) w += 1;
+    else {
+      const acc = f.c / f.n, avg = f.c ? f.ms / f.c : 6000;
+      w += (1 - acc) * 5 + Math.min(3, Math.max(0, (avg - 2000) / 1000));
+    }
+    if (a === 1 || b === 1) w *= 0.3;
+    pool.push({ a, b, w }); total += w;
+  }
+  let r = Math.random() * total;
+  for (const p of pool) { if ((r -= p.w) <= 0) return p; }
+  return pool[pool.length - 1];
+}
+
+function nextQuestion() {
+  const f = pickFact();
+  syncClock();
+  G.q = { a: f.a, b: f.b, start: G.elapsed };
+  G.input = '';
+  G.locked = false;
+  $('#qa').textContent = f.a;
+  $('#qb').textContent = f.b;
+  $('#qcard').className = 'card qcard';
+  $('#correction').textContent = '';
+  renderInput();
+}
+
+function renderInput() {
+  const el = $('#ans');
+  el.textContent = G.input || '?';
+  el.classList.toggle('empty', !G.input);
+}
+
+function press(k) {
+  if (!G || G.over || G.paused || G.locked) return;
+  if (k === 'del') G.input = G.input.slice(0, -1);
+  else if (k === 'go') { if (G.input) submit(); return; }
+  else if (G.input.length < 2) G.input += k;
+  renderInput();
+}
+
+function submit() {
+  syncClock();
+  const { a, b } = G.q;
+  const ms = G.elapsed - G.q.start;
+  const given = parseInt(G.input, 10);
+  const ok = given === a * b;
+  G.results.push({ a, b, given, ok, ms });
+  G.locked = true;
+
+  // Long thinking pauses (e.g. distracted) are capped so they don't skew his averages.
+  const fk = factKey(a, b);
+  const f = (S.facts[fk] = S.facts[fk] || { n: 0, c: 0, ms: 0 });
+  f.n++;
+  if (ok) { f.c++; f.ms += Math.min(ms, 15000); }
+
+  if (ok) {
+    G.combo++;
+    G.maxCombo = Math.max(G.maxCombo, G.combo);
+    const mult = G.combo >= 20 ? 4 : G.combo >= 10 ? 3 : G.combo >= 5 ? 2 : 1;
+    const speed = ms < 1500 ? 10 : ms < 2500 ? 6 : ms < 4000 ? 3 : 0;
+    const pts = (10 + speed) * mult;
+    G.points += pts;
+    floatText('+' + pts);
+    $('#qcard').classList.add('good');
+    sndGood(G.combo);
+    setTimeout(nextQuestion, 220);
+  } else {
+    G.combo = 0;
+    G.retry.push({ f: { a, b }, at: G.results.length + 3 });
+    $('#qcard').classList.add('bad');
+    $('#correction').textContent = `${a} × ${b} = ${a * b}`;
+    sndBad();
+    setTimeout(nextQuestion, 1300);
+  }
+  updateHud();
+}
+
+function floatText(t) {
+  const r = $('#qcard').getBoundingClientRect();
+  const el = document.createElement('div');
+  el.className = 'float';
+  el.textContent = t;
+  el.style.left = r.left + r.width / 2 - 20 + 'px';
+  el.style.top = r.top + 10 + 'px';
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 800);
+}
+
+function updateHud() {
+  const good = G.results.filter((r) => r.ok).length, bad = G.results.length - good;
+  $('#score').textContent = '⭐ ' + G.points.toLocaleString();
+  $('#countInfo').innerHTML = `✅ ${good} &nbsp; ❌ ${bad}`;
+  const avg = G.results.length ? G.results.reduce((s, r) => s + r.ms, 0) / G.results.length : 0;
+  $('#avgInfo').textContent = '⏱ ' + (G.results.length ? sec(avg) : '–');
+  const c = $('#combo');
+  const mult = G.combo >= 20 ? 4 : G.combo >= 10 ? 3 : G.combo >= 5 ? 2 : 1;
+  c.innerHTML = G.combo >= 3 ? `🔥 ${G.combo} in a row${mult > 1 ? ` · x${mult} points` : ''}` : '&nbsp;';
+  if (G.combo >= 3) { c.classList.remove('pop'); void c.offsetWidth; c.classList.add('pop'); }
+}
+
+function pause() {
+  if (!G || G.over || G.paused) return;
+  syncClock();
+  G.paused = true;
+  const ov = $('#overlay');
+  ov.innerHTML = `<div class="card">
+      <h2>Paused ⏸</h2>
+      <div class="muted" style="font-weight:700">The clock is stopped.</div>
+      <button class="btn primary" id="resumeBtn">▶ Keep going</button>
+      <button class="btn danger" id="quitBtn">Stop early</button>
+      <div class="muted" style="font-size:13px">Stopping early won't count toward the daily streak.</div>
+    </div>`;
+  ov.classList.remove('hidden');
+  $('#resumeBtn').onclick = () => { ov.classList.add('hidden'); G.last = performance.now(); G.paused = false; };
+  $('#quitBtn').onclick = () => { ov.classList.add('hidden'); G.paused = false; endGame(false); };
+}
+
+function endGame(completed) {
+  if (G.over) return;
+  G.over = true;
+  const R = G.results;
+  const total = R.length, correct = R.filter((r) => r.ok).length;
+  if (total === 0) { save(); G = null; renderHome(); return; }
+
+  const prevBest = S.sessions.filter((s) => s.total >= 30).reduce((m, s) => Math.min(m, s.avgMs), Infinity);
+  const prevMostCorrect = S.sessions.reduce((m, s) => Math.max(m, s.correct), 0);
+
+  const session = {
+    day: dayKey(G.startedAt), at: G.startedAt, completed, minutes: S.settings.minutes,
+    total, correct, avgMs: R.reduce((s, r) => s + r.ms, 0) / total,
+    avgCorrectMs: correct ? R.filter((r) => r.ok).reduce((s, r) => s + r.ms, 0) / correct : 0,
+    points: G.points, maxCombo: G.maxCombo,
+    mistakes: R.filter((r) => !r.ok).map((r) => [r.a, r.b, r.given]),
+  };
+  S.sessions.push(session);
+  if (S.sessions.length > 400) S.sessions.splice(0, S.sessions.length - 400);
+  const levelBefore = levelInfo(S.xp).level;
+  S.xp += G.points + (completed ? 200 : 0);
+  const levelAfter = levelInfo(S.xp).level;
+
+  const acc = correct / total, streak = dayStreak();
+  const earned = {
+    first: completed,
+    combo10: G.maxCombo >= 10, combo25: G.maxCombo >= 25, combo50: G.maxCombo >= 50,
+    q100: total >= 100, q200: total >= 200,
+    speed3: total >= 30 && session.avgMs < 3000, speed2: total >= 30 && session.avgMs < 2000,
+    acc95: total >= 50 && acc >= 0.95, perfect: total >= 50 && acc === 1,
+    day3: streak >= 3, day7: streak >= 7, day30: streak >= 30,
+    master: allMastered(),
+  };
+  const newBadges = BADGES.filter((b) => earned[b.id] && !S.badges[b.id]);
+  for (const b of newBadges) S.badges[b.id] = Date.now();
+  save();
+
+  const pbs = [];
+  if (total >= 30 && session.avgMs < prevBest) pbs.push(prevBest === Infinity ? 'First speed record set!' : `New speed record! ${sec(session.avgMs)} (was ${sec(prevBest)})`);
+  if (correct > prevMostCorrect && prevMostCorrect > 0) pbs.push(`Most correct ever: ${correct}!`);
+  if (levelAfter > levelBefore) pbs.push(`Level up! You're now level ${levelAfter} 🎊`);
+
+  renderResults(session, newBadges, pbs);
+  G = null;
+  if (completed || newBadges.length || pbs.length) { confetti(); sndFanfare(); }
+}
+
+/* ---------------- Results ---------------- */
+function renderResults(s, newBadges, pbs) {
+  const acc = Math.round((100 * s.correct) / s.total);
+  const trophy = acc >= 95 ? '🏆' : acc >= 80 ? '🥈' : acc >= 60 ? '🥉' : '💪';
+  const cheer = acc >= 95 ? 'Amazing!' : acc >= 80 ? 'Great work!' : acc >= 60 ? 'Nice effort!' : 'Keep practising!';
+  const seen = new Set();
+  const mistakes = s.mistakes.filter(([a, b]) => { const k = factKey(a, b); if (seen.has(k)) return false; seen.add(k); return true; });
+  $('#results').innerHTML = `
+    <div class="trophy">${trophy}</div>
+    <h1 class="white center">${cheer}</h1>
+    ${s.completed ? '' : '<div class="today todo">Stopped early: this one won\'t count for the streak.</div>'}
+    ${pbs.map((p) => `<div class="pb">⭐ ${p}</div>`).join('')}
+    <div class="card grid2 center">
+      <div><div class="stat-big">${s.correct}/${s.total}</div><div class="stat-label">Correct</div></div>
+      <div><div class="stat-big">${acc}%</div><div class="stat-label">Accuracy</div></div>
+      <div><div class="stat-big">${sec(s.avgMs)}</div><div class="stat-label">Avg / question</div></div>
+      <div><div class="stat-big">🔥 ${s.maxCombo}</div><div class="stat-label">Best streak</div></div>
+      <div style="grid-column:span 2"><div class="stat-big">⭐ ${s.points.toLocaleString()}${s.completed ? ' + 200' : ''}</div><div class="stat-label">Points earned${s.completed ? ' (+200 finish bonus)' : ''}</div></div>
+    </div>
+    ${newBadges.length ? `<div class="card"><h3 style="margin-bottom:10px">New badge${newBadges.length > 1 ? 's' : ''}!</h3>
+      ${newBadges.map((b) => `<div class="new-badge" style="margin-bottom:8px"><span class="i">${b.i}</span><div>${b.name}<div class="muted" style="font-size:13px">${b.desc}</div></div></div>`).join('')}</div>` : ''}
+    ${mistakes.length ? `<div class="card"><h3 style="margin-bottom:6px">Let's remember these</h3>
+      ${mistakes.map(([a, b, g]) => `<div class="mistake"><span>${a} × ${b} = ${a * b}</span><span class="said">you said ${g}</span></div>`).join('')}</div>`
+      : '<div class="card center" style="font-weight:800">No mistakes at all! 🌟</div>'}
+    <button class="btn primary" id="homeBtn">🏠 Done</button>
+  `;
+  $('#homeBtn').onclick = renderHome;
+  show('results');
+}
+
+/* ---------------- Stats ---------------- */
+function renderStats() {
+  const done = S.sessions.filter((s) => s.total >= 5).slice(-14);
+  const maxAvg = Math.max(4000, ...done.map((s) => s.avgMs));
+  const W = 320, H = 140, bw = W / Math.max(done.length, 7);
+  const bars = done.map((s, i) => {
+    const h = Math.max(4, ((H - 24) * s.avgMs) / maxAvg);
+    const acc = s.correct / s.total;
+    const col = acc >= 0.9 ? '#22c55e' : acc >= 0.75 ? '#f59e0b' : '#ef4444';
+    return `<rect x="${i * bw + 3}" y="${H - 16 - h}" width="${bw - 6}" height="${h}" rx="4" fill="${col}"/>
+      <text x="${i * bw + bw / 2}" y="${H - 20 - h}" text-anchor="middle" font-size="10" font-weight="800" fill="#1e1b4b">${(s.avgMs / 1000).toFixed(1)}</text>
+      <text x="${i * bw + bw / 2}" y="${H - 3}" text-anchor="middle" font-size="9" fill="#6b7280">${s.day.slice(8)}/${s.day.slice(5, 7)}</text>`;
+  }).join('');
+
+  const lo = minFactor();
+  let grid = '<div class="h">×</div>';
+  for (let b = lo; b <= 9; b++) grid += `<div class="h">${b}</div>`;
+  for (let a = lo; a <= 9; a++) {
+    grid += `<div class="h">${a}</div>`;
+    for (let b = lo; b <= 9; b++) {
+      const f = S.facts[factKey(a, b)], lv = factLevel(f);
+      const avg = f && f.c ? (f.ms / f.c / 1000).toFixed(1) : '';
+      grid += `<div class="m${lv}" title="${a}×${b}">${lv ? avg : a * b}</div>`;
+    }
+  }
+  const cols = 10 - lo;
+
+  const recent = S.sessions.slice(-20).reverse();
+  const totalQ = S.sessions.reduce((s, x) => s + x.total, 0);
+  const totalC = S.sessions.reduce((s, x) => s + x.correct, 0);
+  const best = S.sessions.filter((s) => s.total >= 30).reduce((m, s) => Math.min(m, s.avgMs), Infinity);
+
+  $('#stats').innerHTML = `
+    <div class="row between"><h1 class="white">Progress</h1><button class="btn ghost" id="backBtn">← Back</button></div>
+    <div class="card grid2 center">
+      <div><div class="stat-big">${S.sessions.filter((s) => s.completed).length}</div><div class="stat-label">Sessions done</div></div>
+      <div><div class="stat-big">${totalQ.toLocaleString()}</div><div class="stat-label">Questions</div></div>
+      <div><div class="stat-big">${totalQ ? Math.round((100 * totalC) / totalQ) : 0}%</div><div class="stat-label">Overall accuracy</div></div>
+      <div><div class="stat-big">${best === Infinity ? '–' : sec(best)}</div><div class="stat-label">Best avg speed</div></div>
+    </div>
+    <div class="card">
+      <h3>Seconds per question</h3>
+      <div class="muted" style="font-size:13px;font-weight:700;margin-bottom:8px">Shorter bars are faster. Colour shows accuracy.</div>
+      ${done.length ? `<svg viewBox="0 0 ${W} ${H}" width="100%">${bars}</svg>` : '<div class="muted center" style="padding:20px">Play a session to see your chart.</div>'}
+      <div class="legend"><span style="--c:#22c55e">90%+</span><span style="--c:#f59e0b">75–89%</span><span style="--c:#ef4444">under 75%</span></div>
+    </div>
+    <div class="card">
+      <h3>Times-table map</h3>
+      <div class="muted" style="font-size:13px;font-weight:700;margin-bottom:8px">Each square shows average seconds for that fact.</div>
+      <div class="mgrid" style="grid-template-columns:28px repeat(${cols}, 1fr)">${grid}</div>
+      <div class="legend" style="margin-top:10px"><span style="--c:#86efac">Mastered</span><span style="--c:#fde68a">Getting there</span><span style="--c:#fecaca">Needs practice</span><span style="--c:#f1f5f9">Not tried</span></div>
+    </div>
+    <div class="card">
+      <h3 style="margin-bottom:6px">Recent sessions</h3>
+      ${recent.length ? `<table><tr><th>Date</th><th>Right</th><th>Acc</th><th>Avg</th><th>Pts</th></tr>
+        ${recent.map((s) => `<tr><td>${new Date(s.at).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}${s.completed ? '' : ' ⏹'}</td><td>${s.correct}/${s.total}</td><td>${Math.round((100 * s.correct) / s.total)}%</td><td>${sec(s.avgMs)}</td><td>${s.points}</td></tr>`).join('')}
+      </table><div class="muted" style="font-size:12px;margin-top:6px">⏹ = stopped early</div>` : '<div class="muted">No sessions yet.</div>'}
+    </div>
+  `;
+  $('#backBtn').onclick = renderHome;
+}
+
+/* ---------------- Settings ---------------- */
+function renderSettings() {
+  $('#settings').innerHTML = `
+    <div class="row between"><h1 class="white">Settings</h1><button class="btn ghost" id="backBtn2">← Back</button></div>
+    <div class="card">
+      <label class="set">Player name <input type="text" id="setName" maxlength="20" value="${esc(S.name)}" placeholder="Name"></label>
+      <label class="set">Minutes per day
+        <select id="setMin">${[2, 5, 10, 15].map((m) => `<option value="${m}" ${S.settings.minutes === m ? 'selected' : ''}>${m} minutes</option>`).join('')}</select>
+      </label>
+      <label class="set">Include ×1 facts <input type="checkbox" id="setOnes" ${S.settings.includeOnes ? 'checked' : ''}></label>
+      <label class="set">Sounds <input type="checkbox" id="setSound" ${S.settings.sound ? 'checked' : ''}></label>
+    </div>
+    <div class="card">
+      <h3>For parents</h3>
+      <p class="muted" style="font-weight:600;font-size:14px">Facts he gets wrong or answers slowly come up more often, and a missed fact returns a few questions later. Time spent paused doesn't count. Progress is saved on this phone only.</p>
+      <button class="btn danger" id="resetBtn" style="width:100%">Reset all progress</button>
+    </div>
+  `;
+  const back = () => {
+    S.name = $('#setName').value.trim();
+    S.settings.minutes = parseInt($('#setMin').value, 10);
+    S.settings.includeOnes = $('#setOnes').checked;
+    S.settings.sound = $('#setSound').checked;
+    save();
+    renderHome();
+  };
+  $('#backBtn2').onclick = back;
+  $('#resetBtn').onclick = () => {
+    if (confirm('Erase all sessions, XP and badges? This cannot be undone.')) {
+      const name = S.name;
+      S = fresh(); S.name = name; save(); renderHome();
+    }
+  };
+}
+
+/* ---------------- Input wiring ---------------- */
+$('#keypad').addEventListener('pointerdown', (e) => {
+  const b = e.target.closest('.key');
+  if (!b) return;
+  e.preventDefault();
+  b.classList.add('down');
+  setTimeout(() => b.classList.remove('down'), 90);
+  press(b.dataset.k);
+});
+document.addEventListener('keydown', (e) => {
+  if (!G) return;
+  if (/^[0-9]$/.test(e.key)) press(e.key);
+  else if (e.key === 'Backspace') press('del');
+  else if (e.key === 'Enter') press('go');
+  else if (e.key === 'Escape') pause();
+});
+$('#pauseBtn').onclick = pause;
+document.addEventListener('visibilitychange', () => { if (document.hidden) pause(); });
+
+if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});
+
+renderHome();
+</script>
+</body>
+</html>
