@@ -89,6 +89,12 @@
 
   /* Results & stats */
   .trophy { font-size: 64px; text-align: center; }
+  .stars { display: flex; justify-content: center; gap: 10px; font-size: 64px; line-height: 1.1; }
+  .stars span { display: inline-block; animation: starIn .55s cubic-bezier(.2,1.6,.4,1) both; }
+  .stars span.off { filter: grayscale(1); opacity: .3; }
+  @keyframes starIn { from { transform: scale(0) rotate(-140deg); } }
+  .star-goal { text-align: center; color: #fff; font-weight: 800; font-size: 15px; margin: 2px 0 6px; }
+  .star-goal.pop { animation: pop .5s; }
   .mistake { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #f1f5f9; font-weight: 700; }
   .mistake:last-child { border-bottom: 0; }
   .mistake .said { color: var(--bad); }
@@ -159,6 +165,7 @@
       <div id="score">⭐ 0</div>
     </div>
     <div class="timer-bar"><div id="timerFill"></div></div>
+    <div class="star-goal" id="starInfo">&nbsp;</div>
     <div class="combo" id="combo">&nbsp;</div>
     <div class="card qcard" id="qcard">
       <div class="question"><span id="qa">9</span> × <span id="qb">5</span> = <span class="answer empty" id="ans">?</span></div>
@@ -221,18 +228,22 @@
 
 /* ---------------- Data ---------------- */
 const KEY = 'timesdash.v2', OLD_KEY = 'timesdash.v1';
+// Maths is a 1-minute sprint: 15 right = 1 star, 20 = 2 stars, 25+ = 3 stars.
+const MATH_MIN = 1, STAR_AT = [15, 20, 25];
+const starsFor = (correct) => STAR_AT.filter((n) => correct >= n).length;
+const starRow = (n) => '⭐'.repeat(n) + '☆'.repeat(3 - n);
 const TITLES = ['Rookie', 'Counter', 'Quick Thinker', 'Number Ninja', 'Math Wizard', 'Speed Racer', 'Times Titan', 'Multiplication Master', 'Legend'];
 const BADGES = [
   { id: 'first',   i: '🎉', name: 'First Dash',    desc: 'Finish a full maths session' },
   { id: 'combo10', i: '🔥', name: 'On Fire',       desc: '10 right in a row' },
-  { id: 'combo25', i: '☄️', name: 'Blazing',       desc: '25 right in a row' },
-  { id: 'combo50', i: '🌋', name: 'Unstoppable',   desc: '50 right in a row' },
-  { id: 'q100',    i: '💯', name: 'Century',       desc: '100 answers in one session' },
-  { id: 'q200',    i: '🚀', name: 'Rocket',        desc: '200 answers in one session' },
-  { id: 'speed3',  i: '⚡', name: 'Quick',         desc: 'Average under 3 s (30+ answers)' },
-  { id: 'speed2',  i: '🏎️', name: 'Lightning',     desc: 'Average under 2 s (30+ answers)' },
-  { id: 'acc95',   i: '🎯', name: 'Sharpshooter',  desc: '95% right (50+ answers)' },
-  { id: 'perfect', i: '💎', name: 'Flawless',      desc: '100% right (50+ answers)' },
+  { id: 'combo25', i: '☄️', name: 'Blazing',       desc: '20 right in a row' },
+  { id: 'combo50', i: '🌋', name: 'Unstoppable',   desc: '30 right in a row' },
+  { id: 'q100',    i: '🌟', name: 'Superstar',     desc: 'Get 3 stars in maths' },
+  { id: 'q200',    i: '🚀', name: 'Rocket',        desc: '35 answers in one minute' },
+  { id: 'speed3',  i: '⚡', name: 'Quick',         desc: 'Average under 3 s (15+ answers)' },
+  { id: 'speed2',  i: '🏎️', name: 'Lightning',     desc: 'Average under 2 s (15+ answers)' },
+  { id: 'acc95',   i: '🎯', name: 'Sharpshooter',  desc: '95% right (20+ answers)' },
+  { id: 'perfect', i: '💎', name: 'Flawless',      desc: '100% right (20+ answers)' },
   { id: 'day3',    i: '📅', name: 'Habit',         desc: '3-day streak' },
   { id: 'day7',    i: '🗓️', name: 'Week Warrior',  desc: '7-day streak' },
   { id: 'day30',   i: '👑', name: 'Monarch',       desc: '30-day streak' },
@@ -393,7 +404,9 @@ function renderHome() {
   };
   const subs = subjectsOf(S).map((id) => {
     const s = SUBJ[id], done = didToday(s.list), comp = s.list.filter((x) => x.completed);
-    return Object.assign({ id, done, last: comp[comp.length - 1] }, s);
+    const today = s.list.filter((x) => x.day === dayKey(Date.now()) && x.completed);
+    const best = id === 'maths' && today.length ? Math.max(...today.map((x) => x.stars ?? starsFor(x.correct))) : null;
+    return Object.assign({ id, done, best, last: comp[comp.length - 1] }, s);
   });
   $('#home').innerHTML = `
     <div class="row between">
@@ -411,11 +424,11 @@ function renderHome() {
       <div class="level-bar"><div style="width:${Math.round(L.pct * 100)}%"></div></div>
       <div class="muted" style="font-size:13px;margin-top:6px;font-weight:700">${S.xp.toLocaleString()} XP · ${L.toNext.toLocaleString()} XP to level ${L.level + 1}</div>
     </div>
-    <div class="today ${today ? 'done' : 'todo'}">${today ? "✅ Today's practice is done. Great job!" : `⏳ Today's ${S.settings.minutes}-minute practice is waiting`}</div>
+    <div class="today ${today ? 'done' : 'todo'}">${today ? "✅ Today's practice is done. Great job!" : `⏳ Today's practice is waiting`}</div>
     ${subs.map((s) => `
     <button class="btn primary subject" data-s="${s.id}">
       <span>${s.icon} ${subs.length > 1 ? s.name : s.done ? 'Practice again' : 'Start'}</span>
-      <small>${s.done ? '✅ Done today · play again' : `⏳ ${S.settings.minutes} minutes`}</small>
+      <small>${s.done ? `✅ Done today${s.best != null ? ' · best ' + starRow(s.best) : ''} · play again` : s.id === 'maths' ? '⏳ 1 minute · 15 right = ⭐' : `⏳ ${S.settings.minutes} minutes`}</small>
     </button>`).join('')}
     ${subs.some((s) => s.last) ? `
     <div class="card">
@@ -488,7 +501,7 @@ function countdown(next) {
 
 function startGame() {
   G = {
-    duration: S.settings.minutes * 60000, elapsed: 0, last: performance.now(), paused: false, over: false,
+    duration: MATH_MIN * 60000, stars: 0, elapsed: 0, last: performance.now(), paused: false, over: false,
     q: null, input: '', locked: false, results: [], combo: 0, maxCombo: 0, points: 0, retry: [], startedAt: Date.now(),
   };
   show('game');
@@ -510,7 +523,7 @@ function loop() {
   const s = Math.ceil(left / 1000);
   $('#timeLeft').textContent = Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
   $('#timerFill').style.width = (100 * left) / G.duration + '%';
-  $('#timerFill').style.background = left < 30000 ? '#fca5a5' : '#fde68a';
+  $('#timerFill').style.background = left < 10000 ? '#fca5a5' : '#fde68a';
   if (left <= 0) return endGame(true);
   requestAnimationFrame(loop);
 }
@@ -617,6 +630,14 @@ function updateHud() {
   const good = G.results.filter((r) => r.ok).length, bad = G.results.length - good;
   $('#score').textContent = '⭐ ' + G.points.toLocaleString();
   $('#countInfo').innerHTML = `✅ ${good} &nbsp; ❌ ${bad}`;
+  const stars = starsFor(good), si = $('#starInfo');
+  si.textContent = starRow(stars) + (stars < 3 ? `  ${STAR_AT[stars] - good} more for ${stars ? 'the next ' : 'a '}star` : '  Superstar! Keep going!');
+  if (stars > G.stars) {
+    G.stars = stars;
+    si.classList.remove('pop'); void si.offsetWidth; si.classList.add('pop');
+    floatText(stars === 3 ? '🌟 3 stars!' : `⭐ Star ${stars}!`);
+    sndFanfare(); confetti(40 + 30 * stars);
+  }
   const avg = G.results.length ? G.results.reduce((s, r) => s + r.ms, 0) / G.results.length : 0;
   $('#avgInfo').textContent = '⏱ ' + (G.results.length ? sec(avg) : '–');
   const c = $('#combo');
@@ -651,11 +672,11 @@ function endGame(completed) {
   const total = R.length, correct = R.filter((r) => r.ok).length;
   if (total === 0) { save(); G = null; renderHome(); return; }
 
-  const prevBest = S.sessions.filter((s) => s.total >= 30).reduce((m, s) => Math.min(m, s.avgMs), Infinity);
-  const prevMostCorrect = S.sessions.reduce((m, s) => Math.max(m, s.correct), 0);
+  const prevBest = S.sessions.filter((s) => s.total >= 15).reduce((m, s) => Math.min(m, s.avgMs), Infinity);
+  const prevMostCorrect = S.sessions.filter((s) => s.minutes === MATH_MIN).reduce((m, s) => Math.max(m, s.correct), 0);
 
   const session = {
-    day: dayKey(G.startedAt), at: G.startedAt, completed, minutes: S.settings.minutes,
+    day: dayKey(G.startedAt), at: G.startedAt, completed, minutes: MATH_MIN, stars: starsFor(correct),
     total, correct, avgMs: R.reduce((s, r) => s + r.ms, 0) / total,
     avgCorrectMs: correct ? R.filter((r) => r.ok).reduce((s, r) => s + r.ms, 0) / correct : 0,
     points: G.points, maxCombo: G.maxCombo,
@@ -670,10 +691,10 @@ function endGame(completed) {
   const acc = correct / total, streak = dayStreak();
   const earned = {
     first: completed,
-    combo10: G.maxCombo >= 10, combo25: G.maxCombo >= 25, combo50: G.maxCombo >= 50,
-    q100: total >= 100, q200: total >= 200,
-    speed3: total >= 30 && session.avgMs < 3000, speed2: total >= 30 && session.avgMs < 2000,
-    acc95: total >= 50 && acc >= 0.95, perfect: total >= 50 && acc === 1,
+    combo10: G.maxCombo >= 10, combo25: G.maxCombo >= 20, combo50: G.maxCombo >= 30,
+    q100: session.stars === 3, q200: total >= 35,
+    speed3: total >= 15 && session.avgMs < 3000, speed2: total >= 15 && session.avgMs < 2000,
+    acc95: total >= 20 && acc >= 0.95, perfect: total >= 20 && acc === 1,
     day3: streak >= 3, day7: streak >= 7, day30: streak >= 30,
     master: allMastered(),
   };
@@ -682,13 +703,18 @@ function endGame(completed) {
   save();
 
   const pbs = [];
-  if (total >= 30 && session.avgMs < prevBest) pbs.push(prevBest === Infinity ? 'First speed record set!' : `New speed record! ${sec(session.avgMs)} (was ${sec(prevBest)})`);
+  if (total >= 15 && session.avgMs < prevBest) pbs.push(prevBest === Infinity ? 'First speed record set!' : `New speed record! ${sec(session.avgMs)} (was ${sec(prevBest)})`);
   if (correct > prevMostCorrect && prevMostCorrect > 0) pbs.push(`Most correct ever: ${correct}!`);
   if (levelAfter > levelBefore) pbs.push(`Level up! You're now level ${levelAfter} 🎊`);
 
   renderResults(session, newBadges, pbs);
   G = null;
-  if (completed || newBadges.length || pbs.length) { confetti(); sndFanfare(); }
+  const st = session.stars;
+  if (st) {
+    // Bigger party for more stars: one burst + chime per star as it lands.
+    for (let i = 0; i < st; i++) setTimeout(() => { confetti(120 + 60 * i); sndFanfare(); }, 250 + i * 450);
+    if (st === 3) setTimeout(() => confetti(260), 250 + 3 * 450);
+  } else if (completed || newBadges.length || pbs.length) { confetti(); sndFanfare(); }
 }
 
 /* ---------------- Results ---------------- */
@@ -702,9 +728,15 @@ function renderResults(s, newBadges, pbs, kind = 'maths') {
   const mistakeRows = reading
     ? mistakes.map(([w, heard]) => `<div class="mistake"><button class="sayit plain" data-w="${esc(w)}">🔊 ${esc(w)}</button><span class="said">${heard ? `heard “${esc(heard)}”` : ''}</span></div>`)
     : mistakes.map(([a, b, g]) => `<div class="mistake"><span>${a} × ${b} = ${a * b}</span><span class="said">you said ${g}</span></div>`);
+  const st = reading ? 0 : (s.stars ?? starsFor(s.correct));
+  const STAR_CHEER = ['Keep going!', 'You got a star!', 'Two stars! Brilliant!', 'SUPERSTAR! Three stars!'];
+  const head = reading
+    ? `<div class="trophy">${trophy}</div><h1 class="white center">${cheer}</h1>`
+    : `<div class="stars">${[0, 1, 2].map((i) => `<span class="${i < st ? '' : 'off'}" style="animation-delay:${0.25 + i * 0.45}s">⭐</span>`).join('')}</div>
+       <h1 class="white center">${STAR_CHEER[st]}</h1>
+       <div class="star-goal">${st < 3 ? `${s.correct} right. Get ${STAR_AT[st]} right for ${st ? 'the next star' : 'your first star'}!` : `${s.correct} right in one minute!`}</div>`;
   $('#results').innerHTML = `
-    <div class="trophy">${trophy}</div>
-    <h1 class="white center">${cheer}</h1>
+    ${head}
     ${s.completed ? '' : '<div class="today todo">Stopped early: this one won\'t count for the streak.</div>'}
     ${pbs.map((p) => `<div class="pb">⭐ ${p}</div>`).join('')}
     <div class="card grid2 center">
@@ -819,19 +851,20 @@ function renderSettings() {
     <div class="row between"><h1 class="white">Settings</h1><button class="btn ghost" id="backBtn2">← Back</button></div>
     <div class="card">
       <label class="set">Player name <input type="text" id="setName" maxlength="20" value="${esc(S.name)}" placeholder="Name"></label>
-      <label class="set">Minutes per day
-        <select id="setMin">${[2, 5, 10, 15].map((m) => `<option value="${m}" ${S.settings.minutes === m ? 'selected' : ''}>${m} minutes</option>`).join('')}</select>
-      </label>
       <label class="set">Sounds <input type="checkbox" id="setSound" ${S.settings.sound ? 'checked' : ''}></label>
     </div>
     <div class="card">
       <h3>✖️ Maths</h3>
       <label class="set">Show maths <input type="checkbox" id="setMaths" ${S.settings.maths ? 'checked' : ''}></label>
       <label class="set">Include ×1 facts <input type="checkbox" id="setOnes" ${S.settings.includeOnes ? 'checked' : ''}></label>
+      <p class="muted" style="font-weight:600;font-size:13px;margin:4px 0 0">1-minute rounds. 15 right = ⭐, 20 = ⭐⭐, 25 or more = ⭐⭐⭐.</p>
     </div>
     <div class="card">
       <h3>📖 Reading</h3>
       <label class="set">Show reading <input type="checkbox" id="setReading" ${S.settings.reading ? 'checked' : ''}></label>
+      <label class="set">Minutes per session
+        <select id="setMin">${[2, 5, 10, 15].map((m) => `<option value="${m}" ${S.settings.minutes === m ? 'selected' : ''}>${m} minutes</option>`).join('')}</select>
+      </label>
       <label class="set">Words
         <select id="setLen">${[['3', '3 letters'], ['4', '4 letters'], ['both', '3 and 4 letters']].map(([v, t]) => `<option value="${v}" ${S.settings.wordLen === v ? 'selected' : ''}>${t}</option>`).join('')}</select>
       </label>
