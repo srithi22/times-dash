@@ -260,7 +260,7 @@ function fresh(name = '') {
     v: 2, name, xp: 0, badges: {},
     sessions: [], facts: {},          // maths
     readSessions: [], words: {},      // reading
-    settings: { minutes: 5, includeOnes: false, sound: true, maths: true, reading: true, wordLen: 'both', accent: 'en-IN' },
+    settings: { minutes: 5, includeOnes: false, sound: true, maths: true, reading: true, wordLen: 'both', accent: 'en-IN', listener: 'phone', strict: false },
   };
 }
 
@@ -512,7 +512,7 @@ function startGame() {
 
 function syncClock(st = G) {
   const now = performance.now();
-  if (!st.paused) st.elapsed += now - st.last;
+  if (!st.paused && !st.hold) st.elapsed += now - st.last;
   st.last = now;
 }
 
@@ -652,6 +652,7 @@ function pause() {
   syncClock(st);
   st.paused = true;
   if (st.rec) { try { st.rec.abort(); } catch {} }
+  if (st === RG && st.engine === 'phone') { micClose(); st.rec = null; if (st.listening) setMic(false); }
   const ov = $('#overlay');
   ov.innerHTML = `<div class="card">
       <h2>Paused ⏸</h2>
@@ -871,7 +872,13 @@ function renderSettings() {
       <label class="set">Listen for
         <select id="setAccent">${[['en-IN', 'Indian English'], ['en-GB', 'British English'], ['en-US', 'American English']].map(([v, t]) => `<option value="${v}" ${S.settings.accent === v ? 'selected' : ''}>${t}</option>`).join('')}</select>
       </label>
-      <p class="muted" style="font-weight:600;font-size:13px;margin:4px 0 0">Reading uses the phone's speech recognition, which needs the internet. If it mishears a word, tap “It was right”.</p>
+      <label class="set">Listening
+        <select id="setListener">${[['phone', 'On this phone (best)'], ['chrome', 'Chrome speech service']].map(([v, t]) => `<option value="${v}" ${S.settings.listener === v ? 'selected' : ''}>${t}</option>`).join('')}</select>
+      </label>
+      <label class="set">Checking
+        <select id="setStrict">${[['gentle', 'Gentle: forgives small slips'], ['strict', 'Strict']].map(([v, t]) => `<option value="${v}" ${(S.settings.strict ? 'strict' : 'gentle') === v ? 'selected' : ''}>${t}</option>`).join('')}</select>
+      </label>
+      <p class="muted" style="font-weight:600;font-size:13px;margin:4px 0 0">“On this phone” downloads a small listening helper once (about ${ASR_MB} MB), then works offline. It checks the word on the card, so it copes with young voices and sounding out. If it gets one wrong, tap “It was right”.</p>
     </div>
     <div class="card">
       <h3>For parents</h3>
@@ -889,6 +896,8 @@ function renderSettings() {
     S.settings.reading = $('#setReading').checked;
     S.settings.wordLen = $('#setLen').value;
     S.settings.accent = $('#setAccent').value;
+    S.settings.listener = $('#setListener').value;
+    S.settings.strict = $('#setStrict').value === 'strict';
     save();
     renderHome();
   };
@@ -929,6 +938,299 @@ const MIC_ERRORS = {
   'audio-capture': "The microphone isn't working. Tap 🎤 to try again.",
 };
 const speechRec = () => window.SpeechRecognition || window.webkitSpeechRecognition;
+/* ---------------- Word matching that forgives small slips ---------------- */
+// Words become rough sound strings; a weighted edit distance forgives typical small-child and
+// accent slips (r→w, th→d/f, sh→s, dropped end sounds, vowel colour) but not a different first sound.
+const NUM_WORDS = { 0: 'zero', 1: 'one', 2: 'two', 3: 'three', 4: 'four', 5: 'five', 6: 'six', 7: 'seven', 8: 'eight', 9: 'nine', 10: 'ten' };
+const ALIAS = { one: 'wun', won: 'wun', two: 'tu', to: 'tu', too: 'tu', four: 'for', eight: 'ate', son: 'sun', knot: 'not', aunt: 'ant', wring: 'ring', feat: 'feet', butt: 'but', read: 'red', yeah: 'yes', yep: 'yes' };
+function sounds(w) {
+  w = ALIAS[w] || w;
+  return w.toLowerCase()
+    .replace(/^kn/, 'n').replace(/^wr/, 'r').replace(/^wh/, 'w')
+    .replace(/([aeiou])([^aeiou])e$/, (m, v, c) => ({ a: 'A', e: 'I', i: 'Y', o: 'O', u: 'U' }[v] + c))
+    .replace(/sh/g, 'S').replace(/ch/g, 'C').replace(/th/g, 'T').replace(/ph/g, 'f').replace(/ng/g, 'N')
+    .replace(/ck/g, 'k').replace(/qu/g, 'kw').replace(/x/g, 'ks')
+    .replace(/c(?=[eiy])/g, 's').replace(/c/g, 'k').replace(/q/g, 'k')
+    .replace(/ee|ea|ie/g, 'I').replace(/oo|ou|ew/g, 'U').replace(/ai|ay|ei/g, 'A').replace(/oa|ow/g, 'O')
+    .replace(/ar/g, 'R').replace(/or|our|oar|ore|aw|au/g, 'Q').replace(/er|ir|ur/g, 'E')
+    .replace(/al(?=[lk]|$)/g, 'Ql').replace(/(.)\1+/g, '$1').replace(/e$/, '').replace(/[^a-zA-Z]/g, '');
+}
+const VOWEL = new Set('aeiouAIYOUERQ');
+const CHILD_SWAPS = ['rw', 'lw', 'Ss', 'Tf', 'Td', 'Tt', 'vb', 'CS', 'zs', 'jd', 'jC', 'Nn', 'yl'];
+const END_SWAPS = ['gk', 'dt', 'bp', 'zs', 'vf', 'mn'];
+const isPair = (list, a, b) => list.includes(a + b) || list.includes(b + a);
+function soundDist(t, h) {
+  const n = t.length, m = h.length, D = [];
+  const del = (i) => (i === n - 1 && !VOWEL.has(t[i])) || (i === n - 2 && !VOWEL.has(t[i]) && !VOWEL.has(t[i + 1])) ? 0.5 : 1;
+  const sub = (a, b, i, j) => {
+    if (a === b) return 0;
+    if (VOWEL.has(a) && VOWEL.has(b)) return 0.5;
+    if (isPair(CHILD_SWAPS, a, b)) return 0.5;
+    if (isPair(END_SWAPS, a, b) && i === n - 1 && j === m - 1) return 0.5;
+    return i === 0 && j === 0 ? 1.5 : 1;
+  };
+  for (let i = 0; i <= n; i++) D.push(new Array(m + 1).fill(0));
+  for (let i = 1; i <= n; i++) D[i][0] = D[i - 1][0] + del(i - 1);
+  for (let j = 1; j <= m; j++) D[0][j] = D[0][j - 1] + (j === m ? 0.75 : 1);
+  for (let i = 1; i <= n; i++) for (let j = 1; j <= m; j++) {
+    D[i][j] = Math.min(D[i - 1][j] + del(i - 1), D[i][j - 1] + (j === m && i === n ? 0.75 : 1), D[i - 1][j - 1] + sub(t[i - 1], h[j - 1], i - 1, j - 1));
+  }
+  return D[n][m];
+}
+const wordsIn = (text) => text.toLowerCase().replace(/\d+/g, (d) => ' ' + (NUM_WORDS[d] || d) + ' ').replace(/[^a-z' ]/g, ' ').replace(/'/g, '').split(/\s+/).filter(Boolean);
+// True if any heard word (or two joined words) is the target or a forgivable version of it.
+function heardWord(text, word) {
+  const t = sounds(word), toks = wordsIn(text || ''), max = t.length <= 3 ? 0.75 : 1;
+  const cands = [...toks];
+  for (let i = 0; i + 1 < toks.length; i++) cands.push(toks[i] + toks[i + 1]);
+  return cands.some((w) => w === word || (SOUNDS_LIKE[word] || []).includes(w) || soundDist(t, sounds(w)) <= max + 1e-9);
+}
+
+/* ---------------- Listening on the phone ---------------- */
+// A small speech model (Moonshine base, via Transformers.js) runs on the phone in a worker.
+// Instead of guessing which word was said, it scores how well the recording fits the word on the
+// card versus similar wrong words (cat vs hat, bat…), which is far more reliable for single words
+// and for children's voices. Thresholds were tuned on 405 child-pitched test recordings.
+const ASR_MODEL = 'onnx-community/moonshine-base-ONNX';
+const TJS_URL = 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2';
+const ASR_MB = 65;
+const CHECK = { gentle: { dm: -5.5, df: 10 }, strict: { dm: -4.5, df: 9 } };
+// How likely the model finds each word with no speech at all (it likes some words more than others).
+const PRIOR = Object.fromEntries('a:14 all:16 am:19 an:19 and:13 ant:22 any:20 are:17 as:17 ask:22 at:19 back:20 bad:22 bag:24 ball:24 bank:23 bat:22 bath:23 be:17 bed:23 beg:21 bell:21 belt:24 best:21 bid:25 big:22 bike:27 bin:23 bird:23 book:22 box:21 boy:20 bud:24 bug:22 bun:24 bus:23 but:14 by:18 cake:21 can:19 cap:22 card:23 cat:20 chin:23 chip:22 clap:22 cold:21 cook:20 corn:20 cot:24 crab:24 cub:22 cup:22 cut:18 dad:21 day:19 desk:25 did:20 dig:25 dip:23 do:15 dog:21 doll:22 dot:22 drum:23 duck:23 dud:25 eat:20 egg:21 end:19 fan:22 far:20 farm:21 fast:21 fat:20 fed:24 feet:21 fig:21 fill:21 fin:20 fish:21 fit:20 fix:23 flag:24 fog:22 for:15 fork:22 fox:20 frog:21 fun:19 get:22 gift:22 girl:19 go:17 gold:21 got:19 grin:26 gum:23 gut:25 had:20 ham:23 hand:21 has:20 hat:22 he:16 help:20 hen:22 her:19 hid:27 hill:24 him:19 hip:26 his:22 hit:22 hold:18 home:20 hop:22 hot:21 how:18 hug:24 hum:20 hut:22 if:17 in:16 is:16 it:14 jam:22 jeep:23 jet:24 job:21 jog:22 jug:23 jump:22 kick:22 kid:22 king:21 kit:23 kite:25 lamp:24 lap:25 last:22 leg:22 let:19 lid:26 lip:24 list:22 lock:22 log:21 long:20 look:18 man:19 map:21 mask:24 mat:25 may:18 me:17 men:23 milk:23 mix:21 moon:21 mop:25 moth:23 much:19 mud:24 mug:23 mum:22 my:18 nap:24 nest:24 net:22 new:20 nip:24 no:15 nod:23 not:18 now:16 nut:20 of:16 old:21 on:18 one:17 or:14 our:20 out:21 pack:22 pan:21 park:22 pat:24 peg:23 pen:21 pet:23 pig:23 pin:25 pink:22 pit:25 plum:24 pond:26 pop:20 pot:22 pun:24 pup:23 put:20 rag:24 ran:23 rat:23 red:19 rest:19 rich:23 ring:20 rock:21 rod:22 rope:22 rub:19 rug:23 run:19 sack:25 sand:22 sat:23 saw:22 sax:25 say:19 see:18 seed:24 she:16 ship:21 shop:20 sick:22 sin:20 sing:19 sink:22 sit:22 six:21 snap:23 so:10 sock:23 son:24 song:21 soon:21 spot:23 star:21 stop:19 sun:21 swim:22 tag:23 tall:21 tank:23 tap:21 ten:20 tent:26 that:16 then:17 this:16 tin:23 tip:23 to:15 top:19 tree:20 tub:24 turn:21 two:17 up:19 us:18 use:18 van:22 vet:24 wag:24 wall:21 was:19 way:20 we:14 web:21 wet:21 who:17 why:20 wig:21 win:21 wing:23 with:17 yes:15 you:9 yum:19 zip:25'.split(' ').map((s) => { const [w, v] = s.split(':'); return [w, -v]; }));
+const EXTRA_WORDS = 'a all am an and any are as at bad be bid boy by cot dad day did do dud eat far for get go got gut had has he her him his how if in is it let may me mum my new nip no now of old on one or our out pit pun put sack saw sax say see she sick sin so son tip to two up us use was way we who why you'.split(' ');
+const LEXICON = [...new Set([...WORDS3, ...WORDS4, ...EXTRA_WORDS])];
+function distractors(target, n = 12) {
+  const t = sounds(target);
+  return LEXICON.filter((w) => w !== target && !heardWord(w, target))
+    .map((w) => [w, soundDist(t, sounds(w))]).sort((a, b) => a[1] - b[1]).slice(0, n).map((x) => x[0]);
+}
+const phoneCanListen = () => typeof WebAssembly === 'object' && 'Worker' in window && !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+
+// The worker: loads the model once, then scores recordings.
+function asrWorker() {
+  let score = null;
+  self.onmessage = async ({ data: m }) => {
+    if (m.type === 'load') {
+      try {
+        const T = await import(m.url);
+        T.env.allowLocalModels = false;
+        const files = {};
+        const progress_callback = (p) => {
+          if (p.status !== 'progress' || !p.total) return;
+          files[p.file] = [p.loaded, p.total];
+          let a = 0, b = 0; for (const k in files) { a += files[k][0]; b += files[k][1]; }
+          self.postMessage({ type: 'progress', loaded: a, total: b });
+        };
+        const [processor, tokenizer, model] = await Promise.all([
+          T.AutoProcessor.from_pretrained(m.model, { progress_callback }),
+          T.AutoTokenizer.from_pretrained(m.model, { progress_callback }),
+          T.AutoModelForSpeechSeq2Seq.from_pretrained(m.model, { dtype: 'q8', device: 'wasm', progress_callback }),
+        ]);
+        let eos = model.config.eos_token_id; if (Array.isArray(eos)) eos = eos[0];
+        const prefix = [model.config.decoder_start_token_id ?? 1];
+        const enc = (s) => tokenizer.encode(s, { add_special_tokens: false });
+        const cap = (w) => w[0].toUpperCase() + w.slice(1);
+        const lse = (a) => { const mx = Math.max(...a); return mx + Math.log(a.reduce((s, x) => s + Math.exp(x - mx), 0)); };
+        score = async (audio, words) => {
+          const inputs = await processor(audio);
+          const out = await model.generate({ ...inputs, max_new_tokens: 12 });
+          const free = tokenizer.batch_decode(out, { skip_special_tokens: true })[0].trim();
+          const seqs = [], owner = [];
+          for (const w of words) for (const f of [cap(w) + '.', cap(w), w]) { seqs.push([...prefix, ...enc(f), eos]); owner.push(w); }
+          seqs.push([...prefix, ...(free ? enc(free) : []), eos]);
+          const L = Math.max(...seqs.map((s) => s.length)), ids = new BigInt64Array(seqs.length * L);
+          seqs.forEach((s, i) => { for (let t = 0; t < L; t++) ids[i * L + t] = BigInt(t < s.length ? s[t] : eos); });
+          const decoder_input_ids = new T.Tensor('int64', ids, [seqs.length, L]);
+          const mi = await model._prepare_encoder_decoder_kwargs_for_generation({
+            inputs_tensor: inputs.input_values, model_inputs: { ...inputs, decoder_input_ids }, model_input_name: 'input_values', generation_config: { guidance_scale: null },
+          });
+          const { logits } = await model({ ...mi, decoder_input_ids });
+          const V = logits.dims[2], d = logits.data;
+          const lp = seqs.map((s, i) => {
+            let sum = 0;
+            for (let t = prefix.length - 1; t < s.length - 1; t++) {
+              const off = (i * L + t) * V; let mx = -Infinity;
+              for (let v = 0; v < V; v++) if (d[off + v] > mx) mx = d[off + v];
+              let z = 0; for (let v = 0; v < V; v++) z += Math.exp(d[off + v] - mx);
+              sum += d[off + s[t + 1]] - mx - Math.log(z);
+            }
+            return sum;
+          });
+          const scores = {};
+          for (const w of words) scores[w] = lse(lp.filter((_, i) => owner[i] === w));
+          return { free, freeScore: lp[lp.length - 1], scores };
+        };
+        await score(new Float32Array(12000), ['cat', 'hat']); // warm up
+        self.postMessage({ type: 'ready' });
+      } catch (e) { self.postMessage({ type: 'error', error: String((e && e.message) || e) }); }
+    } else if (m.type === 'score') {
+      try {
+        const whole = await score(m.audio, m.words);
+        const last = m.chunk ? await score(m.audio.slice(m.chunk[0], m.chunk[1]), m.words) : null;
+        self.postMessage({ type: 'result', id: m.id, whole, last });
+      } catch (e) { self.postMessage({ type: 'result', id: m.id, error: String((e && e.message) || e) }); }
+    }
+  };
+}
+const ASR = { worker: null, state: 'idle', loaded: 0, total: 0, onprogress: null, waiters: [], jobs: new Map(), id: 0 };
+function asrLoad() {
+  if (ASR.state === 'ready') return Promise.resolve(true);
+  if (ASR.state === 'loading') return new Promise((r) => ASR.waiters.push(r));
+  ASR.state = 'loading';
+  return new Promise((resolve) => {
+    ASR.waiters.push(resolve);
+    const done = (ok) => { ASR.state = ok ? 'ready' : 'failed'; const ws = ASR.waiters; ASR.waiters = []; ws.forEach((w) => w(ok)); };
+    try {
+      const url = URL.createObjectURL(new Blob(['(' + asrWorker.toString() + ')()'], { type: 'text/javascript' }));
+      ASR.worker = new Worker(url, { type: 'module' });
+    } catch { return done(false); }
+    ASR.worker.onmessage = ({ data: m }) => {
+      if (m.type === 'progress') { ASR.loaded = m.loaded; ASR.total = m.total; if (ASR.onprogress) ASR.onprogress(); }
+      else if (m.type === 'ready') { localStorage.setItem('timesdash.asr', 'ok'); done(true); }
+      else if (m.type === 'error') { console.warn('Listening model failed:', m.error); try { ASR.worker.terminate(); } catch {} ASR.worker = null; done(false); }
+      else if (m.type === 'result') { const j = ASR.jobs.get(m.id); ASR.jobs.delete(m.id); if (j) j(m); }
+    };
+    ASR.worker.onerror = (e) => { console.warn('Listening worker error', e.message); done(false); };
+    ASR.worker.postMessage({ type: 'load', url: TJS_URL, model: ASR_MODEL });
+  });
+}
+function asrScore(audio, words, chunk) {
+  const id = ++ASR.id;
+  return new Promise((resolve) => {
+    ASR.jobs.set(id, resolve);
+    ASR.worker.postMessage({ type: 'score', id, audio, words, chunk }, [audio.buffer]);
+  });
+}
+// Decide from the model's scores: is the target clearly the best fit (allowing for the model's own
+// word preferences), and not far below what the model itself would have written?
+function judgeScores(target, r) {
+  const th = CHECK[S.settings.strict ? 'strict' : 'gentle'];
+  const one = (x) => {
+    if (!x) return { ok: false, heard: '' };
+    const s = x.scores, adj = (w) => s[w] - 0.5 * (PRIOR[w] ?? -18);
+    let bw = '', bv = -Infinity;
+    for (const w in s) if (w !== target && w.length >= 3 && Math.abs(w.length - target.length) <= 1 && adj(w) > bv) { bv = adj(w); bw = w; }
+    const t = adj(target);
+    const freeOk = !!x.free && heardWord(x.free, target);
+    const ok = freeOk || (t - bv >= th.dm && s[target] - x.freeScore >= -th.df);
+    const said = x.free.replace(/[.!?,]+/g, '').trim();
+    return { ok, heard: freeOk || said ? said : bv > t ? bw : '' }; // the model's own words if it wrote any
+  };
+  const a = one(r.whole);
+  if (a.ok) return a;
+  const b = one(r.last);
+  return b.ok ? b : a;
+}
+
+// Microphone: kept open while she reads, so each tap starts instantly.
+const MIC = { stream: null, ctx: null, proc: null, onframe: null };
+async function micOpen() {
+  if (MIC.stream && MIC.stream.active && MIC.ctx && MIC.ctx.state !== 'closed') { if (MIC.ctx.state === 'suspended') await MIC.ctx.resume(); return; }
+  MIC.stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+  try { MIC.ctx = new AudioContext({ sampleRate: 16000 }); } catch { MIC.ctx = new AudioContext(); }
+  const src = MIC.ctx.createMediaStreamSource(MIC.stream);
+  MIC.proc = MIC.ctx.createScriptProcessor(1024, 1, 1);
+  MIC.proc.onaudioprocess = (e) => { if (MIC.onframe) MIC.onframe(e.inputBuffer.getChannelData(0)); };
+  src.connect(MIC.proc);
+  MIC.proc.connect(MIC.ctx.destination);
+  if (MIC.ctx.state === 'suspended') await MIC.ctx.resume();
+}
+function micClose() {
+  MIC.onframe = null;
+  if (MIC.stream) MIC.stream.getTracks().forEach((t) => t.stop());
+  if (MIC.ctx) MIC.ctx.close().catch(() => {});
+  MIC.stream = MIC.ctx = MIC.proc = null;
+}
+function to16k(x, rate) {
+  if (rate === 16000) return x;
+  const f = rate / 16000, n = Math.floor(x.length / f), y = new Float32Array(n);
+  for (let i = 0; i < n; i++) { const p = i * f, j = Math.floor(p), a = p - j; y[i] = x[j] * (1 - a) + (x[j + 1] || 0) * a; }
+  return y;
+}
+// Split a recording into spoken chunks (a child sounding out "c… a… t… cat" makes several).
+function speechChunks(x, frameMs = 20, gapMs = 220, minMs = 90, padMs = 120) {
+  const F = Math.round(16 * frameMs), n = Math.floor(x.length / F), e = new Float32Array(n);
+  for (let i = 0; i < n; i++) { let s = 0; for (let j = 0; j < F; j++) { const v = x[i * F + j]; s += v * v; } e[i] = Math.sqrt(s / F); }
+  const sorted = Array.from(e).sort((a, b) => a - b), floor = sorted[Math.floor(n * 0.1)] || 0, peak = sorted[n - 1] || 0;
+  const thr = Math.max(0.006, floor * 3, peak * 0.12), segs = [];
+  let st = -1, last = -1;
+  for (let i = 0; i < n; i++) {
+    if (e[i] > thr) { if (st < 0) st = i; last = i; } else if (st >= 0 && (i - last) * frameMs >= gapMs) { segs.push([st, last]); st = -1; }
+  }
+  if (st >= 0) segs.push([st, last]);
+  const pad = Math.round(padMs / frameMs);
+  return segs.filter(([a, b]) => (b - a + 1) * frameMs >= minMs).map(([a, b]) => [Math.max(0, (a - pad) * F), Math.min(x.length, (b + 1 + pad) * F)]);
+}
+// Record one attempt. Starts when she starts talking and stops by itself after a pause.
+function recordWord(onSpeech) {
+  let finish;
+  const promise = new Promise((resolve) => {
+    const rate = MIC.ctx.sampleRate, frameMs = (1024 / rate) * 1000;
+    const buf = [];
+    let floor = null, speaking = false, voiced = 0, quiet = 0, startIdx = 0, lastVoice = 0, lastVoiceAt = 0, done = false;
+    finish = (reason) => {
+      if (done) return;
+      done = true;
+      MIC.onframe = null;
+      if (reason === 'abort' || !speaking) return resolve({ reason: reason === 'abort' ? 'abort' : 'none' });
+      const from = Math.max(0, startIdx - 5), to = Math.min(buf.length, lastVoice + 6); // 0.3 s before, 0.35 s after
+      const raw = new Float32Array((to - from) * 1024);
+      for (let i = from; i < to; i++) raw.set(buf[i], (i - from) * 1024);
+      let audio = to16k(raw, rate), peak = 0;
+      for (const v of audio) peak = Math.max(peak, Math.abs(v));
+      if (peak > 0 && peak < 0.5) { const g = 0.5 / peak; audio = audio.map((v) => v * g); }
+      resolve({ reason, audio, endAt: lastVoiceAt });
+    };
+    MIC.onframe = (x) => {
+      buf.push(new Float32Array(x));
+      let s = 0; for (let i = 0; i < x.length; i++) s += x[i] * x[i];
+      const rms = Math.sqrt(s / x.length);
+      if (floor === null) floor = rms;
+      const loud = rms > Math.max(0.012, floor * 3);
+      if (!speaking) {
+        if (!loud) floor = 0.9 * floor + 0.1 * rms;
+        voiced = loud ? voiced + 1 : 0;
+        if (voiced >= 2) { speaking = true; startIdx = buf.length - 2; lastVoice = buf.length; lastVoiceAt = performance.now(); if (onSpeech) onSpeech(); }
+        else if (buf.length * frameMs > 6000) finish('none');
+      } else {
+        if (loud) { quiet = 0; lastVoice = buf.length; lastVoiceAt = performance.now(); } else quiet++;
+        if (quiet * frameMs >= 1000 || (buf.length - startIdx) * frameMs > 8000) finish('end'); // she may pause while sounding out
+      }
+    };
+  });
+  return { promise, stop: () => finish('end'), abort: () => finish('abort') };
+}
+async function listenPhone() {
+  const word = RG.word;
+  try { await micOpen(); } catch { $('#rmsg').textContent = MIC_ERRORS['not-allowed']; return; }
+  if (!RG || RG.over || RG.paused || RG.word !== word) return;
+  const rec = recordWord(() => { if (RG && RG.listening) $('#micLabel').textContent = 'Listening… 👂'; });
+  RG.rec = rec;
+  $('#rmsg').textContent = '';
+  setMic(true);
+  const r = await rec.promise;
+  if (!RG || RG.over || RG.word !== word) return;
+  RG.rec = null;
+  setMic(false);
+  if (r.reason === 'abort') return;
+  if (r.reason === 'none') { $('#rmsg').textContent = MIC_ERRORS['no-speech']; return; }
+  syncClock(RG);
+  const ms = Math.max(300, RG.elapsed - RG.shownAt - (performance.now() - r.endAt));
+  const ch = speechChunks(r.audio);
+  RG.hold = true; // the clock waits while the phone checks
+  RG.busy = true;
+  $('#micLabel').textContent = 'Checking… 🤔';
+  $('#micBtn').disabled = true;
+  const res = await asrScore(r.audio, [word, ...distractors(word)], ch.length > 1 ? ch[ch.length - 1] : null);
+  if (!RG || RG.over || RG.word !== word) return;
+  syncClock(RG);
+  RG.hold = false;
+  RG.busy = false;
+  if (res.error) { setMic(false); $('#rmsg').textContent = 'Something went wrong. Tap 🎤 to try again.'; return; }
+  const v = judgeScores(word, res);
+  judgeWord(v.ok, v.heard, ms);
+}
+
 const comboMult = (c) => (c >= 20 ? 4 : c >= 10 ? 3 : c >= 5 ? 2 : 1);
 let RG = null;
 
@@ -949,8 +1251,46 @@ function infoOverlay(icon, title, text) {
   $('#okBtn').onclick = () => ov.classList.add('hidden');
 }
 
-function startReadingFlow() {
-  if (!speechRec()) return infoOverlay('🎤', 'Reading needs Chrome', "This browser can't listen. Open Times Dash in Chrome on Android.");
+let readEngine = 'chrome';
+async function startReadingFlow() {
+  const wantPhone = S.settings.listener !== 'chrome' && phoneCanListen();
+  if (!wantPhone) {
+    if (!speechRec()) return infoOverlay('🎤', 'Reading needs Chrome', "This browser can't listen. Open Times Dash in Chrome on Android.");
+    readEngine = 'chrome';
+    return countdown(startReading);
+  }
+  const ov = $('#overlay');
+  let cancelled = false;
+  if (ASR.state !== 'ready') {
+    const first = localStorage.getItem('timesdash.asr') !== 'ok';
+    ov.innerHTML = `<div class="card"><div style="font-size:48px">👂</div><h2>Getting ready to listen…</h2>
+      <div class="muted" style="font-weight:700">${first ? `First time only: downloading the listening helper (about ${ASR_MB} MB). Wi-Fi is best.` : 'Just a moment.'}</div>
+      <div class="level-bar" style="margin:14px 0 6px"><div id="asrBar" style="width:0%"></div></div>
+      <div class="muted" id="asrPct" style="font-weight:800;font-size:14px">&nbsp;</div>
+      <button class="btn ghost" id="asrCancel" style="color:var(--ink,#1e1b4b)">Cancel</button></div>`;
+    ov.classList.remove('hidden');
+    $('#asrCancel').onclick = () => { cancelled = true; ov.classList.add('hidden'); };
+    ASR.onprogress = () => {
+      const tot = Math.max(ASR.total, ASR_MB * 1e6), pct = Math.min(99, Math.round((100 * ASR.loaded) / tot));
+      const bar = $('#asrBar'); if (bar) bar.style.width = pct + '%';
+      const t = $('#asrPct'); if (t) t.textContent = pct + '%';
+    };
+    const ok = await asrLoad();
+    ASR.onprogress = null;
+    if (cancelled) return;
+    ov.classList.add('hidden');
+    if (!ok) {
+      if (!speechRec()) return infoOverlay('😕', "Couldn't get the listener", 'Check the internet connection and try again.');
+      readEngine = 'chrome';
+      infoOverlay('🎤', 'Using Chrome listening today', "The phone's own listener couldn't load (is the internet on?). Reading will use Chrome's listening instead.");
+      $('#okBtn').onclick = () => { ov.classList.add('hidden'); countdown(startReading); };
+      return;
+    }
+  }
+  try { await micOpen(); } catch {
+    return infoOverlay('🎤', 'Microphone needed', 'Please allow the microphone for Times Dash, then start again.');
+  }
+  readEngine = 'phone';
   countdown(startReading);
 }
 
@@ -958,7 +1298,7 @@ function startReading() {
   RG = {
     duration: S.settings.minutes * 60000, elapsed: 0, last: performance.now(), paused: false, over: false,
     word: null, shownAt: 0, results: [], combo: 0, prevCombo: 0, maxCombo: 0, points: 0, retry: [], recent: [],
-    rec: null, listening: false, waiting: false, startedAt: Date.now(),
+    rec: null, listening: false, waiting: false, hold: false, engine: readEngine, startedAt: Date.now(),
   };
   show('read');
   updateReadHud();
@@ -1029,14 +1369,11 @@ function setMic(on) {
   $('#micLabel').textContent = RG.waiting ? ' ' : on ? 'Listening… read the word' : 'Tap 🎤 and read';
 }
 
-const heardWord = (text, word) => {
-  const accept = [word].concat(SOUNDS_LIKE[word] || []);
-  return text.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().split(' ').some((x) => accept.includes(x));
-};
 
 function listen() {
   if (!RG || RG.over || RG.paused || RG.waiting || RG.busy) return;
   if (RG.listening) { try { RG.rec.stop(); } catch {} return; }
+  if (RG.engine === 'phone') return listenPhone();
   const rec = new (speechRec())();
   rec.lang = S.settings.accent;
   rec.interimResults = true; // lets us accept the word as soon as it's heard
@@ -1076,10 +1413,10 @@ function listen() {
   try { rec.start(); } catch { settle(); }
 }
 
-function judgeWord(ok, heardText) {
+function judgeWord(ok, heardText, measuredMs) {
   if (!RG || RG.over) return;
   syncClock(RG);
-  const w = RG.word, ms = RG.elapsed - RG.shownAt;
+  const w = RG.word, ms = measuredMs ?? RG.elapsed - RG.shownAt;
   const st = (S.words[w] = S.words[w] || { n: 0, c: 0, ms: 0 });
   st.n++;
   RG.results.push({ w, ok, ms, heard: (heardText || '').trim() });
@@ -1145,6 +1482,7 @@ function endReading(completed) {
   if (!RG || RG.over) return;
   RG.over = true;
   if (RG.rec) { try { RG.rec.abort(); } catch {} }
+  micClose();
   const list = RG.results, total = list.length, correct = list.filter((r) => r.ok).length;
   if (total === 0) { save(); RG = null; renderHome(); return; }
 
@@ -1211,6 +1549,8 @@ $('#pauseBtn').onclick = pause;
 document.addEventListener('visibilitychange', () => { if (document.hidden) pause(); });
 
 if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});
+// If the listening helper was downloaded before, load it quietly now so Reading starts straight away.
+if (localStorage.getItem('timesdash.asr') === 'ok' && phoneCanListen() && R.order.some((id) => R.players[id].settings.reading && R.players[id].settings.listener !== 'chrome')) setTimeout(() => asrLoad(), 1500);
 
 /* ---------------- Family PIN lock ---------------- */
 // Only a hash of the PIN is stored here; set it with ./set-pin.sh. Empty means no lock.
