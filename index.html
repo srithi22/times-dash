@@ -228,8 +228,8 @@
 
 /* ---------------- Data ---------------- */
 const KEY = 'timesdash.v2', OLD_KEY = 'timesdash.v1';
-// Maths is a 2-minute sprint: 10 right = 1 star, 12 = 2 stars, 15+ = 3 stars.
-const MATH_MIN = 2, STAR_AT = [10, 12, 15];
+// Maths is a 2-minute sprint: 15 right = 1 star, 20 = 2 stars, 25+ = 3 stars.
+const MATH_MIN = 2, STAR_AT = [15, 20, 25];
 const starsFor = (correct) => STAR_AT.filter((n) => correct >= n).length;
 const starRow = (n) => '⭐'.repeat(n) + '☆'.repeat(3 - n);
 const TITLES = ['Rookie', 'Counter', 'Quick Thinker', 'Number Ninja', 'Math Wizard', 'Speed Racer', 'Times Titan', 'Multiplication Master', 'Legend'];
