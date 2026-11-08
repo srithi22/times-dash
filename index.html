@@ -228,8 +228,8 @@
 
 /* ---------------- Data ---------------- */
 const KEY = 'timesdash.v2', OLD_KEY = 'timesdash.v1';
-// Maths is a 1-minute sprint: 15 right = 1 star, 20 = 2 stars, 25+ = 3 stars.
-const MATH_MIN = 1, STAR_AT = [15, 20, 25];
+// Maths is a 2-minute sprint: 10 right = 1 star, 12 = 2 stars, 15+ = 3 stars.
+const MATH_MIN = 2, STAR_AT = [10, 12, 15];
 const starsFor = (correct) => STAR_AT.filter((n) => correct >= n).length;
 const starRow = (n) => '⭐'.repeat(n) + '☆'.repeat(3 - n);
 const TITLES = ['Rookie', 'Counter', 'Quick Thinker', 'Number Ninja', 'Math Wizard', 'Speed Racer', 'Times Titan', 'Multiplication Master', 'Legend'];
@@ -239,7 +239,7 @@ const BADGES = [
   { id: 'combo25', i: '☄️', name: 'Blazing',       desc: '20 right in a row' },
   { id: 'combo50', i: '🌋', name: 'Unstoppable',   desc: '30 right in a row' },
   { id: 'q100',    i: '🌟', name: 'Superstar',     desc: 'Get 3 stars in maths' },
-  { id: 'q200',    i: '🚀', name: 'Rocket',        desc: '35 answers in one minute' },
+  { id: 'q200',    i: '🚀', name: 'Rocket',        desc: '25 answers in one round' },
   { id: 'speed3',  i: '⚡', name: 'Quick',         desc: 'Average under 3 s (15+ answers)' },
   { id: 'speed2',  i: '🏎️', name: 'Lightning',     desc: 'Average under 2 s (15+ answers)' },
   { id: 'acc95',   i: '🎯', name: 'Sharpshooter',  desc: '95% right (20+ answers)' },
@@ -428,7 +428,7 @@ function renderHome() {
     ${subs.map((s) => `
     <button class="btn primary subject" data-s="${s.id}">
       <span>${s.icon} ${subs.length > 1 ? s.name : s.done ? 'Practice again' : 'Start'}</span>
-      <small>${s.done ? `✅ Done today${s.best != null ? ' · best ' + starRow(s.best) : ''} · play again` : s.id === 'maths' ? '⏳ 1 minute · 15 right = ⭐' : `⏳ ${S.settings.minutes} minutes`}</small>
+      <small>${s.done ? `✅ Done today${s.best != null ? ' · best ' + starRow(s.best) : ''} · play again` : s.id === 'maths' ? `⏳ ${MATH_MIN} minutes · ${STAR_AT[0]} right = ⭐` : `⏳ ${S.settings.minutes} minutes`}</small>
     </button>`).join('')}
     ${subs.some((s) => s.last) ? `
     <div class="card">
@@ -692,7 +692,7 @@ function endGame(completed) {
   const earned = {
     first: completed,
     combo10: G.maxCombo >= 10, combo25: G.maxCombo >= 20, combo50: G.maxCombo >= 30,
-    q100: session.stars === 3, q200: total >= 35,
+    q100: session.stars === 3, q200: total >= 25,
     speed3: total >= 15 && session.avgMs < 3000, speed2: total >= 15 && session.avgMs < 2000,
     acc95: total >= 20 && acc >= 0.95, perfect: total >= 20 && acc === 1,
     day3: streak >= 3, day7: streak >= 7, day30: streak >= 30,
@@ -734,7 +734,7 @@ function renderResults(s, newBadges, pbs, kind = 'maths') {
     ? `<div class="trophy">${trophy}</div><h1 class="white center">${cheer}</h1>`
     : `<div class="stars">${[0, 1, 2].map((i) => `<span class="${i < st ? '' : 'off'}" style="animation-delay:${0.25 + i * 0.45}s">⭐</span>`).join('')}</div>
        <h1 class="white center">${STAR_CHEER[st]}</h1>
-       <div class="star-goal">${st < 3 ? `${s.correct} right. Get ${STAR_AT[st]} right for ${st ? 'the next star' : 'your first star'}!` : `${s.correct} right in one minute!`}</div>`;
+       <div class="star-goal">${st < 3 ? `${s.correct} right. Get ${STAR_AT[st]} right for ${st ? 'the next star' : 'your first star'}!` : `${s.correct} right in ${MATH_MIN} minutes!`}</div>`;
   $('#results').innerHTML = `
     ${head}
     ${s.completed ? '' : '<div class="today todo">Stopped early: this one won\'t count for the streak.</div>'}
@@ -857,7 +857,7 @@ function renderSettings() {
       <h3>✖️ Maths</h3>
       <label class="set">Show maths <input type="checkbox" id="setMaths" ${S.settings.maths ? 'checked' : ''}></label>
       <label class="set">Include ×1 facts <input type="checkbox" id="setOnes" ${S.settings.includeOnes ? 'checked' : ''}></label>
-      <p class="muted" style="font-weight:600;font-size:13px;margin:4px 0 0">1-minute rounds. 15 right = ⭐, 20 = ⭐⭐, 25 or more = ⭐⭐⭐.</p>
+      <p class="muted" style="font-weight:600;font-size:13px;margin:4px 0 0">${MATH_MIN}-minute rounds. ${STAR_AT[0]} right = ⭐, ${STAR_AT[1]} = ⭐⭐, ${STAR_AT[2]} or more = ⭐⭐⭐.</p>
     </div>
     <div class="card">
       <h3>📖 Reading</h3>
