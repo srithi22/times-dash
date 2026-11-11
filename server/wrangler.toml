@@ -1,0 +1,16 @@
+# Times Dash friends' scores: a tiny API that stores nickname + best maths score per day.
+name = "times-dash-scores"
+main = "src/worker.js"
+compatibility_date = "2024-09-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "times_dash_scores"
+database_id = "LOCAL_ONLY"   # replaced with the real id when the database is created
+
+# Daily clean-up of scores older than 30 days.
+[triggers]
+crons = ["17 3 * * *"]
+
+[vars]
+ALLOWED_ORIGINS = "https://srithi22.github.io,http://localhost:8090"

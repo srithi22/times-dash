@@ -89,6 +89,13 @@
 
   /* Results & stats */
   .trophy { font-size: 64px; text-align: center; }
+  .friends .fline { padding: 9px 0; border-top: 1px solid rgba(0,0,0,.06); font-weight: 700; font-size: 15px; }
+  .friends .fline:first-child { border-top: 0; }
+  .friends .fline.win { color: #15803d; }
+  .friends .fline.tie { color: #b45309; }
+  .animals { display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; margin: 10px 0 4px; }
+  .animal { font-size: 24px; padding: 6px 0; border-radius: 12px; border: 2px solid transparent; background: rgba(0,0,0,.04); cursor: pointer; }
+  .animal.on { border-color: #4f46e5; background: #eef2ff; }
   .stars { display: flex; justify-content: center; gap: 10px; font-size: 64px; line-height: 1.1; }
   .stars span { display: inline-block; animation: starIn .55s cubic-bezier(.2,1.6,.4,1) both; }
   .stars span.off { filter: grayscale(1); opacity: .3; }
@@ -430,6 +437,7 @@ function renderHome() {
       <span>${s.icon} ${subs.length > 1 ? s.name : s.done ? 'Practice again' : 'Start'}</span>
       <small>${s.done ? `✅ Done today${s.best != null ? ' · best ' + starRow(s.best) : ''} · play again` : s.id === 'maths' ? `⏳ ${MATH_MIN} minutes · ${STAR_AT[0]} right = ⭐` : `⏳ ${S.settings.minutes} minutes`}</small>
     </button>`).join('')}
+    ${friendsCardHtml()}
     ${subs.some((s) => s.last) ? `
     <div class="card">
       ${subs.filter((s) => s.last).map((s) => `
@@ -449,6 +457,10 @@ function renderHome() {
   $('#toSettings').onclick = () => { renderSettings(); show('settings'); };
   $('#toPlayers').onclick = renderPlayers;
   show('home');
+  wireFriendsCard($('#home'), mathsBestToday());
+  syncScore();
+  // Ask once whether this child wants to join the friends' challenge.
+  if (subjectsOf(S).includes('maths') && !(S.friends && S.friends.asked) && $('#overlay').classList.contains('hidden')) setTimeout(() => { if ($('#home').classList.contains('hidden') || !$('#overlay').classList.contains('hidden')) return; renderJoin(renderHome); }, 600);
 }
 
 /* ---------------- Player picker ---------------- */
@@ -709,6 +721,7 @@ function endGame(completed) {
   if (levelAfter > levelBefore) pbs.push(`Level up! You're now level ${levelAfter} 🎊`);
 
   renderResults(session, newBadges, pbs);
+  friendsAfterRound(completed ? session : null);
   G = null;
   const st = session.stars;
   if (st) {
@@ -738,6 +751,7 @@ function renderResults(s, newBadges, pbs, kind = 'maths') {
        <div class="star-goal">${st < 3 ? `${s.correct} right. Get ${STAR_AT[st]} right for ${st ? 'the next star' : 'your first star'}!` : `${s.correct} right in ${MATH_MIN} minutes!`}</div>`;
   $('#results').innerHTML = `
     ${head}
+    ${reading ? '' : '<div id="friendsRes"></div>'}
     ${s.completed ? '' : '<div class="today todo">Stopped early: this one won\'t count for the streak.</div>'}
     ${pbs.map((p) => `<div class="pb">⭐ ${p}</div>`).join('')}
     <div class="card grid2 center">
@@ -861,6 +875,13 @@ function renderSettings() {
       <p class="muted" style="font-weight:600;font-size:13px;margin:4px 0 0">${MATH_MIN}-minute rounds. ${STAR_AT[0]} right = ⭐, ${STAR_AT[1]} = ⭐⭐, ${STAR_AT[2]} or more = ⭐⭐⭐.</p>
     </div>
     <div class="card">
+      <h3>👫 Friends' challenge</h3>
+      ${joined(S) ? `<div class="row between" style="margin:8px 0"><span style="font-weight:800">${S.friends.emoji} ${esc(S.friends.name)}</span><button class="btn ghost" id="frEdit" style="color:inherit">Change</button></div>
+        <button class="btn danger" id="frLeave" style="width:100%">Leave and delete shared scores</button>`
+        : '<button class="btn primary" id="frJoin" style="width:100%;margin-top:8px">Join</button>'}
+      <p class="muted" style="font-weight:600;font-size:13px;margin:8px 0 0">Shares only a nickname, an animal and the best maths score each day with other players of Times Dash. Scores are deleted after 30 days.</p>
+    </div>
+    <div class="card">
       <h3>📖 Reading</h3>
       <label class="set">Show reading <input type="checkbox" id="setReading" ${S.settings.reading ? 'checked' : ''}></label>
       <label class="set">Minutes per session
@@ -902,6 +923,13 @@ function renderSettings() {
     renderHome();
   };
   $('#backBtn2').onclick = back;
+  if ($('#frJoin')) $('#frJoin').onclick = () => renderJoin(renderSettings);
+  if ($('#frEdit')) $('#frEdit').onclick = () => renderJoin(renderSettings);
+  if ($('#frLeave')) $('#frLeave').onclick = async () => {
+    if (!confirm(`Leave the friends' challenge? ${S.friends.name}'s shared scores will be deleted.`)) return;
+    await leaveFriends();
+    renderSettings();
+  };
   $('#resetBtn').onclick = () => {
     if (confirm('Erase all sessions, XP and badges? This cannot be undone.')) {
       S = R.players[R.current] = fresh(S.name);
@@ -1551,6 +1579,147 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) pause
 if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});
 // If the listening helper was downloaded before, load it quietly now so Reading starts straight away.
 if (localStorage.getItem('timesdash.asr') === 'ok' && phoneCanListen() && R.order.some((id) => R.players[id].settings.reading && R.players[id].settings.listener !== 'chrome')) setTimeout(() => asrLoad(), 1500);
+
+/* ---------------- Friends: compare today's maths with other kids ---------------- */
+// Anyone with the app link can join. Only a nickname, an animal and the best maths score of the
+// day are shared. No rankings: each child just sees how they compare with each friend.
+const SCORES_API = /^(localhost|127\.0\.0\.1)$/.test(location.hostname) ? 'http://localhost:8788' : 'https://times-dash-scores.srithi22.workers.dev';
+const APP_URL = 'https://srithi22.github.io/times-dash/';
+const ANIMALS = ['🦊', '🐼', '🐯', '🦁', '🐸', '🐵', '🐨', '🐰', '🐶', '🐱', '🦄', '🐲', '🐙', '🐧', '🦉', '🐢'];
+const NICK_RE = /^[\p{L}][\p{L} ]{0,11}$/u;
+let FR = { day: null, players: [], at: 0 }; // today's scores from the server
+
+const joined = (p = S) => !!(p.friends && p.friends.key && p.friends.on);
+function mathsBestToday(p = S, exclude) {
+  const d = dayKey(Date.now());
+  return p.sessions.filter((s) => s !== exclude && s.day === d && s.completed && s.minutes === MATH_MIN).reduce((m, s) => Math.max(m, s.correct), 0);
+}
+async function sha16(s) {
+  const h = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
+  return [...new Uint8Array(h)].slice(0, 8).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+async function api(path, body) {
+  const r = await fetch(SCORES_API + path, body ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) } : {});
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { const e = new Error(j.error || 'HTTP ' + r.status); e.status = r.status; throw e; }
+  return j;
+}
+// Send today's best if the server hasn't got it yet. Safe to call any time; retries later if offline.
+async function syncScore(p = S) {
+  if (!joined(p)) return false;
+  const f = p.friends, day = dayKey(Date.now()), best = mathsBestToday(p);
+  if (!best || (f.sent && f.sent.day === day && f.sent.best >= best && f.sent.name === f.name && f.sent.emoji === f.emoji)) return true;
+  try {
+    await api('/api/score', { key: f.key, name: f.name, emoji: f.emoji, day, best });
+    f.sent = { day, best, name: f.name, emoji: f.emoji };
+    save();
+    return true;
+  } catch (e) {
+    if (e.status === 400 && e.message === 'name') { f.badName = true; save(); }
+    return false;
+  }
+}
+async function fetchFriends() {
+  const d = dayKey(Date.now());
+  try { const j = await api('/api/day?d=' + d); FR = { day: d, players: j.players || [], at: Date.now() }; } catch { /* offline: keep what we had */ }
+  return FR.day === d ? FR.players : [];
+}
+// One line per friend, closest scores first. Never a ranking, never "first" or "last".
+function friendLines(players, mine, passed = new Set()) {
+  const me = S.friends && S.friends.pid;
+  let others = players.filter((x) => x.pid !== me && x.best > 0);
+  others.sort((a, b) => Math.abs(a.best - mine) - Math.abs(b.best - mine));
+  if (others.length > 6 && mine > 0) {
+    const above = others.filter((x) => x.best > mine).slice(0, 3), below = others.filter((x) => x.best <= mine).slice(0, 3);
+    others = [...above, ...below].sort((a, b) => Math.abs(a.best - mine) - Math.abs(b.best - mine));
+  } else others = others.slice(0, 6);
+  return others.map((x) => {
+    const who = `${x.emoji} <b>${esc(x.name)}</b>`, d = Math.abs(x.best - mine);
+    if (!mine) return `<div class="fline">${who} got ${x.best} today. Your turn! 💪</div>`;
+    if (x.best === mine) return `<div class="fline tie">🤝 You and ${who} are tied at ${mine}!</div>`;
+    if (x.best < mine) return `<div class="fline win">${passed.has(x.pid) ? '🚀 You just passed' : '🎉 You beat'} ${who} by ${d}!</div>`;
+    return `<div class="fline">${who} is ${d} ahead.${d <= 3 ? ' So close, one more round?' : ' Can you catch up?'}</div>`;
+  }).join('');
+}
+function inviteFriends() {
+  const text = `Let's race at times tables on Times Dash! 🚀 Open this link to play: ${APP_URL}`;
+  location.href = 'https://wa.me/?text=' + encodeURIComponent(text);
+}
+// The card on the home and results screens.
+function friendsCardHtml() {
+  if (!subjectsOf(S).includes('maths')) return '';
+  const inv = '<button class="btn finvite" style="width:100%;margin-top:10px;background:#dcfce7;color:#166534;box-shadow:none">💬 Invite a friend on WhatsApp</button>';
+  if (!joined(S)) return `<div class="card friends"><h3>👫 Friends</h3>
+    <div class="muted" style="font-weight:700;margin:6px 0 10px">Play maths with your friends and see how you compare each day.</div>
+    <button class="btn primary fjoin" style="width:100%">Join the friends' challenge</button>${inv}</div>`;
+  return `<div class="card friends"><div class="row between"><h3>👫 Friends today</h3><span class="pill">${S.friends.emoji} ${esc(S.friends.name)}</span></div>
+    ${S.friends.badName ? '<div class="today todo" style="margin-top:8px">That nickname wasn\'t accepted. Pick another in ⚙️ Settings.</div>' : ''}
+    <div class="flist muted" style="font-weight:700;margin-top:6px">Checking…</div>${inv}</div>`;
+}
+function wireFriendsCard(root, mine, passed) {
+  for (const b of root.querySelectorAll('.finvite')) b.onclick = inviteFriends;
+  for (const b of root.querySelectorAll('.fjoin')) b.onclick = () => renderJoin(() => (root.id === 'home' ? renderHome() : friendsAfterRound(null)));
+  const list = root.querySelector('.flist');
+  if (!list) return;
+  const fill = (players) => {
+    const html = friendLines(players, mine, passed);
+    list.innerHTML = html || (navigator.onLine === false ? 'Offline. Friends\' scores will show when you\'re back online.' : 'No friends have played today yet. Invite one!');
+    list.classList.toggle('muted', !html);
+  };
+  if (FR.day === dayKey(Date.now())) fill(FR.players);
+  fetchFriends().then((p) => { if (list.isConnected) fill(p); });
+}
+// Join (or edit) screen: nickname + animal.
+function renderJoin(onDone) {
+  const f = S.friends || {};
+  let emoji = f.emoji || ANIMALS[Object.keys(R.players).indexOf(R.current) % ANIMALS.length] || ANIMALS[0];
+  const ov = $('#overlay');
+  ov.innerHTML = `<div class="card" style="text-align:left">
+    <h2>👫 Friends' challenge</h2>
+    <div class="muted" style="font-weight:700;margin:4px 0 12px">Your nickname, animal and best maths score each day are shared with friends who play. Nothing else.</div>
+    <label class="set">Nickname <input type="text" id="jName" maxlength="12" value="${esc(f.name || S.name || '')}" placeholder="Nickname"></label>
+    <div class="animals">${ANIMALS.map((a) => `<button class="animal ${a === emoji ? 'on' : ''}" data-a="${a}">${a}</button>`).join('')}</div>
+    <div id="jErr" class="correction" style="min-height:20px"></div>
+    <button class="btn primary" id="jGo" style="width:100%">Join</button>
+    <button class="btn ghost" id="jSkip" style="width:100%;margin-top:8px;color:inherit">Not now</button></div>`;
+  ov.classList.remove('hidden');
+  for (const b of ov.querySelectorAll('.animal')) b.onclick = () => { emoji = b.dataset.a; for (const x of ov.querySelectorAll('.animal')) x.classList.toggle('on', x === b); };
+  $('#jSkip').onclick = () => { S.friends = Object.assign(S.friends || {}, { asked: true }); save(); ov.classList.add('hidden'); if (onDone) onDone(); };
+  $('#jGo').onclick = async () => {
+    const name = $('#jName').value.normalize('NFC').replace(/\s+/g, ' ').trim();
+    if (!NICK_RE.test(name)) { $('#jErr').textContent = 'Use letters only, up to 12.'; return; }
+    const fr = (S.friends = Object.assign(S.friends || {}, { name, emoji, on: true, asked: true, badName: false }));
+    if (!fr.key) { const b = new Uint8Array(16); crypto.getRandomValues(b); fr.key = [...b].map((x) => x.toString(16).padStart(2, '0')).join(''); }
+    fr.pid = await sha16(fr.key);
+    fr.sent = null;
+    save();
+    ov.classList.add('hidden');
+    await syncScore();
+    if (onDone) onDone();
+  };
+}
+async function leaveFriends() {
+  const f = S.friends;
+  if (!f || !f.key) return;
+  try { await api('/api/leave', { key: f.key }); } catch {}
+  S.friends = { asked: true };
+  save();
+}
+// After a maths round: send the score, then show how she/he compares (with a cheer for anyone just passed).
+async function friendsAfterRound(session) {
+  const box = $('#friendsRes');
+  if (!box) return;
+  if (!joined(S)) { box.innerHTML = friendsCardHtml(); wireFriendsCard(box, 0); return; }
+  const mine = mathsBestToday(S), prev = session ? mathsBestToday(S, session) : mine;
+  box.innerHTML = friendsCardHtml();
+  await syncScore();
+  const players = await fetchFriends();
+  const passed = new Set(players.filter((x) => x.pid !== S.friends.pid && x.best > 0 && x.best < mine && x.best >= prev).map((x) => x.pid));
+  if (!box.isConnected) return;
+  wireFriendsCard(box, mine, passed);
+  if (passed.size) { setTimeout(() => { confetti(160); sndFanfare(); }, 2200); }
+}
+window.addEventListener('online', () => { for (const id of R.order) syncScore(R.players[id]); });
 
 /* ---------------- Family PIN lock ---------------- */
 // Only a hash of the PIN is stored here; set it with ./set-pin.sh. Empty means no lock.
