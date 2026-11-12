@@ -1,7 +1,7 @@
 // Network first so updates show up; falls back to the cache when offline.
 // Only the app's own files are cached here. The listening model has its own cache (managed by
 // Transformers.js), which must never be deleted here.
-const CACHE = 'timesdash-v9';
+const CACHE = 'timesdash-v10';
 const FILES = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 self.addEventListener('install', (e) => { e.waitUntil(caches.open(CACHE).then((c) => c.addAll(FILES))); self.skipWaiting(); });
 self.addEventListener('activate', (e) => {

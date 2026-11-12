@@ -65,6 +65,8 @@
   .hud { display: flex; justify-content: space-between; align-items: center; color: #fff; font-weight: 900; font-size: 20px; }
   .timer-bar { height: 10px; background: rgba(255,255,255,.25); border-radius: 99px; overflow: hidden; }
   .timer-bar > div { height: 100%; background: #fde68a; width: 100%; }
+  .timer-bar.calm { height: 8px; margin-top: 6px; }
+  .timer-bar.calm > div { background: rgba(255,255,255,.85); transition: width .25s linear; }
   .combo { font-size: 18px; min-height: 28px; text-align: center; color: #fde68a; font-weight: 900; }
   .combo.pop { animation: pop .3s; }
   @keyframes pop { 50% { transform: scale(1.35); } }
@@ -173,6 +175,7 @@
       <button class="btn ghost" id="pauseBtn" style="padding:8px 14px;font-size:16px">⏸</button>
       <div id="score">✅ 0</div>
     </div>
+    <div class="timer-bar calm"><div id="timerFill" style="width:0"></div></div>
     <div class="combo" id="combo">&nbsp;</div>
     <div class="card qcard" id="qcard">
       <div class="question"><span id="qa">9</span> × <span id="qb">5</span> = <span class="answer empty" id="ans">?</span></div>
@@ -231,10 +234,11 @@
 
 /* ---------------- Data ---------------- */
 const KEY = 'timesdash.v2', OLD_KEY = 'timesdash.v1';
-// Maths is a 3-minute round with no clock on screen (watching a timer made it stressful).
+// Maths is a 2-minute round. No numbers or countdown on screen (watching a timer made it stressful),
+// just a quiet bar that fills up as the round goes on.
 // Afterwards: how many right in how many seconds, what went wrong, and how it compares with last time.
 // Facts missed in a round come back early in the next one.
-const MATH_MIN = 3, PRACTICE_MAX = 15;
+const MATH_MIN = 2, PRACTICE_MAX = 15;
 // The friends' challenge stays hidden until its scores service is online.
 const FRIENDS_LIVE = false;
 const TITLES = ['Rookie', 'Counter', 'Quick Thinker', 'Number Ninja', 'Math Wizard', 'Speed Racer', 'Times Titan', 'Multiplication Master', 'Legend'];
@@ -531,28 +535,40 @@ function syncClock(st = G) {
 function loop() {
   if (!G || G.over) return;
   syncClock();
+  $('#timerFill').style.width = Math.min(100, (100 * G.elapsed) / G.duration) + '%';
   if (G.elapsed >= G.duration) return timesUp();
   requestAnimationFrame(loop);
 }
 
+// Repeat limits (9 × 6 and 6 × 9 count as the same fact):
+//  - at most MAX_PER_ROUND times per round, a re-ask after a mistake included;
+//  - never again within MIN_GAP questions, except the one re-ask after a mistake.
+const MAX_PER_ROUND = 3, MIN_GAP = 8;
 function pickFact() {
-  // A fact he got wrong comes back a few questions later.
-  const due = G.retry.findIndex((r) => r.at <= G.results.length);
+  const asked = (k) => G.results.filter((r) => factKey(r.a, r.b) === k).length;
+  const lastAt = (k) => { for (let i = G.results.length - 1; i >= 0; i--) if (factKey(G.results[i].a, G.results[i].b) === k) return G.results.length - i; return Infinity; };
+  // A fact he got wrong (or missed last round) comes back a few questions later.
+  G.retry = G.retry.filter((r) => asked(factKey(r.f.a, r.f.b)) < MAX_PER_ROUND);
+  const due = G.retry.findIndex((r) => r.at <= G.results.length && lastAt(factKey(r.f.a, r.f.b)) > 1);
   if (due >= 0) return G.retry.splice(due, 1)[0].f;
   const lo = minFactor(), pool = [];
+  const cur = G.q ? factKey(G.q.a, G.q.b) : '';
   let total = 0;
   for (let a = lo; a <= 9; a++) for (let b = lo; b <= 9; b++) {
-    if (G.q && G.q.a === a && G.q.b === b) continue;
-    const f = S.facts[factKey(a, b)];
+    const k = factKey(a, b);
+    if (k === cur || lastAt(k) <= MIN_GAP || asked(k) >= MAX_PER_ROUND - 1) continue;
+    const f = S.facts[k];
     let w = 1;
     if (!f) w += 1;
     else {
       const acc = f.c / f.n, avg = f.c ? f.ms / f.c : 6000;
-      w += (1 - acc) * 5 + Math.min(3, Math.max(0, (avg - 2000) / 1000));
+      w += (1 - acc) * 3 + Math.min(2, Math.max(0, (avg - 2000) / 1000));
     }
     if (a === 1 || b === 1) w *= 0.3;
+    if (a !== b) w /= 2; // both orders are in the pool, so each gets half
     pool.push({ a, b, w }); total += w;
   }
+  if (!pool.length) { const a = lo + Math.floor(Math.random() * (10 - lo)), b = lo + Math.floor(Math.random() * (10 - lo)); return { a, b }; }
   let r = Math.random() * total;
   for (const p of pool) { if ((r -= p.w) <= 0) return p; }
   return pool[pool.length - 1];
@@ -908,7 +924,7 @@ function renderSettings() {
       <h3>✖️ Maths</h3>
       <label class="set">Show maths <input type="checkbox" id="setMaths" ${S.settings.maths ? 'checked' : ''}></label>
       <label class="set">Include ×1 facts <input type="checkbox" id="setOnes" ${S.settings.includeOnes ? 'checked' : ''}></label>
-      <p class="muted" style="font-weight:600;font-size:13px;margin:4px 0 0">${MATH_MIN}-minute rounds with no clock on screen. Questions missed in a round come back at the start of the next one.</p>
+      <p class="muted" style="font-weight:600;font-size:13px;margin:4px 0 0">${MATH_MIN}-minute rounds. No clock on screen, just a bar that fills up. Questions missed in a round come back at the start of the next one.</p>
     </div>
     ${FRIENDS_LIVE ? `<div class="card">
       <h3>👫 Friends' challenge</h3>
