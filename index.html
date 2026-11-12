@@ -102,6 +102,9 @@
   @keyframes starIn { from { transform: scale(0) rotate(-140deg); } }
   .star-goal { text-align: center; color: #fff; font-weight: 800; font-size: 15px; margin: 2px 0 6px; }
   .star-goal.pop { animation: pop .5s; }
+  .cmp { font-weight: 700; padding: 6px 0; border-top: 1px solid #eef2f7; }
+  .cmp:first-of-type { border-top: 0; }
+  .cmp.up { color: #166534; }
   .mistake { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #f1f5f9; font-weight: 700; }
   .mistake:last-child { border-bottom: 0; }
   .mistake .said { color: var(--bad); }
@@ -168,19 +171,12 @@
   <section id="game" class="screen hidden">
     <div class="hud">
       <button class="btn ghost" id="pauseBtn" style="padding:8px 14px;font-size:16px">⏸</button>
-      <div id="timeLeft">10:00</div>
-      <div id="score">⭐ 0</div>
+      <div id="score">✅ 0</div>
     </div>
-    <div class="timer-bar"><div id="timerFill"></div></div>
-    <div class="star-goal" id="starInfo">&nbsp;</div>
     <div class="combo" id="combo">&nbsp;</div>
     <div class="card qcard" id="qcard">
       <div class="question"><span id="qa">9</span> × <span id="qb">5</span> = <span class="answer empty" id="ans">?</span></div>
       <div class="correction" id="correction"></div>
-    </div>
-    <div class="row between white" style="font-weight:800;padding:0 4px">
-      <span id="countInfo">✅ 0 &nbsp; ❌ 0</span>
-      <span id="avgInfo">⏱ –</span>
     </div>
     <div class="keypad" id="keypad">
       <button class="key" data-k="1">1</button><button class="key" data-k="2">2</button><button class="key" data-k="3">3</button>
@@ -235,17 +231,19 @@
 
 /* ---------------- Data ---------------- */
 const KEY = 'timesdash.v2', OLD_KEY = 'timesdash.v1';
-// Maths is a 2-minute sprint: 15 right = 1 star, 20 = 2 stars, 25+ = 3 stars.
-const MATH_MIN = 2, STAR_AT = [15, 20, 25];
-const starsFor = (correct) => STAR_AT.filter((n) => correct >= n).length;
-const starRow = (n) => '⭐'.repeat(n) + '☆'.repeat(3 - n);
+// Maths is a 3-minute round with no clock on screen (watching a timer made it stressful).
+// Afterwards: how many right in how many seconds, what went wrong, and how it compares with last time.
+// Facts missed in a round come back early in the next one.
+const MATH_MIN = 3, PRACTICE_MAX = 15;
+// The friends' challenge stays hidden until its scores service is online.
+const FRIENDS_LIVE = false;
 const TITLES = ['Rookie', 'Counter', 'Quick Thinker', 'Number Ninja', 'Math Wizard', 'Speed Racer', 'Times Titan', 'Multiplication Master', 'Legend'];
 const BADGES = [
   { id: 'first',   i: '🎉', name: 'First Dash',    desc: 'Finish a full maths session' },
   { id: 'combo10', i: '🔥', name: 'On Fire',       desc: '10 right in a row' },
   { id: 'combo25', i: '☄️', name: 'Blazing',       desc: '20 right in a row' },
   { id: 'combo50', i: '🌋', name: 'Unstoppable',   desc: '30 right in a row' },
-  { id: 'q100',    i: '🌟', name: 'Superstar',     desc: 'Get 3 stars in maths' },
+  { id: 'q100',    i: '🌟', name: 'Superstar',     desc: '30 right in one round' },
   { id: 'q200',    i: '🚀', name: 'Rocket',        desc: '25 answers in one round' },
   { id: 'speed3',  i: '⚡', name: 'Quick',         desc: 'Average under 3 s (15+ answers)' },
   { id: 'speed2',  i: '🏎️', name: 'Lightning',     desc: 'Average under 2 s (15+ answers)' },
@@ -412,7 +410,7 @@ function renderHome() {
   const subs = subjectsOf(S).map((id) => {
     const s = SUBJ[id], done = didToday(s.list), comp = s.list.filter((x) => x.completed);
     const today = s.list.filter((x) => x.day === dayKey(Date.now()) && x.completed);
-    const best = id === 'maths' && today.length ? Math.max(...today.map((x) => x.stars ?? starsFor(x.correct))) : null;
+    const best = id === 'maths' && today.length ? Math.max(...today.map((x) => x.correct)) : null;
     return Object.assign({ id, done, best, last: comp[comp.length - 1] }, s);
   });
   $('#home').innerHTML = `
@@ -435,7 +433,7 @@ function renderHome() {
     ${subs.map((s) => `
     <button class="btn primary subject" data-s="${s.id}">
       <span>${s.icon} ${subs.length > 1 ? s.name : s.done ? 'Practice again' : 'Start'}</span>
-      <small>${s.done ? `✅ Done today${s.best != null ? ' · best ' + starRow(s.best) : ''} · play again` : s.id === 'maths' ? `⏳ ${MATH_MIN} minutes · ${STAR_AT[0]} right = ⭐` : `⏳ ${S.settings.minutes} minutes`}</small>
+      <small>${s.done ? `✅ Done today${s.best != null ? ' · best ' + s.best + ' right' : ''} · play again` : s.id === 'maths' ? `${MATH_MIN} minutes${(S.practice || []).length ? ` · ${S.practice.length} to practise from last time` : ''}` : `⏳ ${S.settings.minutes} minutes`}</small>
     </button>`).join('')}
     ${friendsCardHtml()}
     ${subs.some((s) => s.last) ? `
@@ -460,7 +458,7 @@ function renderHome() {
   wireFriendsCard($('#home'), mathsBestToday());
   syncScore();
   // Ask once whether this child wants to join the friends' challenge.
-  if (subjectsOf(S).includes('maths') && !(S.friends && S.friends.asked) && $('#overlay').classList.contains('hidden')) setTimeout(() => { if ($('#home').classList.contains('hidden') || !$('#overlay').classList.contains('hidden')) return; renderJoin(renderHome); }, 600);
+  if (FRIENDS_LIVE && subjectsOf(S).includes('maths') && !(S.friends && S.friends.asked) && $('#overlay').classList.contains('hidden')) setTimeout(() => { if ($('#home').classList.contains('hidden') || !$('#overlay').classList.contains('hidden')) return; renderJoin(renderHome); }, 600);
 }
 
 /* ---------------- Player picker ---------------- */
@@ -513,9 +511,11 @@ function countdown(next) {
 
 function startGame() {
   G = {
-    duration: MATH_MIN * 60000, stars: 0, elapsed: 0, last: performance.now(), paused: false, over: false,
+    duration: MATH_MIN * 60000, elapsed: 0, last: performance.now(), paused: false, over: false,
     q: null, input: '', locked: false, results: [], combo: 0, maxCombo: 0, points: 0, retry: [], startedAt: Date.now(),
+    carried: (S.practice || []).slice(0, PRACTICE_MAX),
   };
+  G.retry = G.carried.map((f, i) => ({ f: { a: f.a, b: f.b }, at: i * 2 }));
   show('game');
   updateHud();
   nextQuestion();
@@ -531,12 +531,7 @@ function syncClock(st = G) {
 function loop() {
   if (!G || G.over) return;
   syncClock();
-  const left = Math.max(0, G.duration - G.elapsed);
-  const s = Math.ceil(left / 1000);
-  $('#timeLeft').textContent = Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
-  $('#timerFill').style.width = (100 * left) / G.duration + '%';
-  $('#timerFill').style.background = left < 10000 ? '#fca5a5' : '#fde68a';
-  if (left <= 0) return endGame(true);
+  if (G.elapsed >= G.duration) return timesUp();
   requestAnimationFrame(loop);
 }
 
@@ -639,19 +634,8 @@ function floatText(t, sel = '#qcard') {
 }
 
 function updateHud() {
-  const good = G.results.filter((r) => r.ok).length, bad = G.results.length - good;
-  $('#score').textContent = '⭐ ' + G.points.toLocaleString();
-  $('#countInfo').innerHTML = `✅ ${good} &nbsp; ❌ ${bad}`;
-  const stars = starsFor(good), si = $('#starInfo');
-  si.textContent = starRow(stars) + (stars < 3 ? `  ${STAR_AT[stars] - good} more for ${stars ? 'the next ' : 'a '}star` : '  Superstar! Keep going!');
-  if (stars > G.stars) {
-    G.stars = stars;
-    si.classList.remove('pop'); void si.offsetWidth; si.classList.add('pop');
-    floatText(stars === 3 ? '🌟 3 stars!' : `⭐ Star ${stars}!`);
-    sndFanfare(); confetti(40 + 30 * stars);
-  }
-  const avg = G.results.length ? G.results.reduce((s, r) => s + r.ms, 0) / G.results.length : 0;
-  $('#avgInfo').textContent = '⏱ ' + (G.results.length ? sec(avg) : '–');
+  const good = G.results.filter((r) => r.ok).length;
+  $('#score').textContent = '✅ ' + good;
   const c = $('#combo');
   const mult = G.combo >= 20 ? 4 : G.combo >= 10 ? 3 : G.combo >= 5 ? 2 : 1;
   c.innerHTML = G.combo >= 3 ? `🔥 ${G.combo} in a row${mult > 1 ? ` · x${mult} points` : ''}` : '&nbsp;';
@@ -660,7 +644,7 @@ function updateHud() {
 
 function pause() {
   const st = G || RG; // whichever game (maths or reading) is running
-  if (!st || st.over || st.paused) return;
+  if (!st || st.over || st.paused || st.ending) return;
   syncClock(st);
   st.paused = true;
   if (st.rec) { try { st.rec.abort(); } catch {} }
@@ -678,6 +662,17 @@ function pause() {
   $('#quitBtn').onclick = () => { ov.classList.add('hidden'); st.paused = false; st === G ? endGame(false) : endReading(false); };
 }
 
+// The clock is hidden, so the end is announced kindly before the results.
+function timesUp() {
+  if (G.over || G.ending) return;
+  G.ending = G.locked = true;
+  const ov = $('#overlay');
+  ov.innerHTML = '<div class="card center"><div style="font-size:56px">⏰</div><h2>Time\'s up!</h2><div class="muted" style="font-weight:700">Let\'s see how you did…</div></div>';
+  ov.classList.remove('hidden');
+  sndFanfare();
+  setTimeout(() => { ov.classList.add('hidden'); endGame(true); }, 1600);
+}
+
 function endGame(completed) {
   if (G.over) return;
   G.over = true;
@@ -687,9 +682,25 @@ function endGame(completed) {
 
   const prevBest = S.sessions.filter((s) => s.total >= 15).reduce((m, s) => Math.min(m, s.avgMs), Infinity);
   const prevMostCorrect = S.sessions.filter((s) => s.minutes === MATH_MIN).reduce((m, s) => Math.max(m, s.correct), 0);
+  // The round to compare with: the last full round of the same length.
+  const prev = [...S.sessions].reverse().find((s) => s.completed && s.minutes === MATH_MIN) || null;
+
+  // Facts from last time: which ones he got right now. Next round's practice list is every fact
+  // missed in this round, plus any from last time that didn't come up.
+  const asked = new Map();
+  for (const r of R) { const k = factKey(r.a, r.b); if (!asked.has(k)) asked.set(k, r.ok); }
+  const carried = G.carried.map((f) => ({ a: f.a, b: f.b, ok: asked.get(factKey(f.a, f.b)) }));
+  const nextPractice = [], seenF = new Set();
+  for (const f of [...R.filter((r) => !r.ok), ...carried.filter((c) => c.ok === undefined)]) {
+    const k = factKey(f.a, f.b);
+    if (!seenF.has(k)) { seenF.add(k); nextPractice.push({ a: f.a, b: f.b }); }
+  }
+  S.practice = nextPractice.slice(0, PRACTICE_MAX);
 
   const session = {
-    day: dayKey(G.startedAt), at: G.startedAt, completed, minutes: MATH_MIN, stars: starsFor(correct),
+    day: dayKey(G.startedAt), at: G.startedAt, completed, minutes: MATH_MIN,
+    secs: Math.round(Math.min(G.elapsed, G.duration) / 1000),
+    carried: carried.filter((c) => c.ok !== undefined).map((c) => [c.a, c.b, c.ok ? 1 : 0]),
     total, correct, avgMs: R.reduce((s, r) => s + r.ms, 0) / total,
     avgCorrectMs: correct ? R.filter((r) => r.ok).reduce((s, r) => s + r.ms, 0) / correct : 0,
     points: G.points, maxCombo: G.maxCombo,
@@ -705,7 +716,7 @@ function endGame(completed) {
   const earned = {
     first: completed,
     combo10: G.maxCombo >= 10, combo25: G.maxCombo >= 20, combo50: G.maxCombo >= 30,
-    q100: session.stars === 3, q200: total >= 25,
+    q100: correct >= 30, q200: total >= 25,
     speed3: total >= 15 && session.avgMs < 3000, speed2: total >= 15 && session.avgMs < 2000,
     acc95: total >= 20 && acc >= 0.95, perfect: total >= 20 && acc === 1,
     day3: streak >= 3, day7: streak >= 7, day30: streak >= 30,
@@ -720,19 +731,44 @@ function endGame(completed) {
   if (correct > prevMostCorrect && prevMostCorrect > 0) pbs.push(`Most correct ever: ${correct}!`);
   if (levelAfter > levelBefore) pbs.push(`Level up! You're now level ${levelAfter} 🎊`);
 
-  renderResults(session, newBadges, pbs);
+  renderResults(session, newBadges, pbs, 'maths', prev);
   friendsAfterRound(completed ? session : null);
   G = null;
-  const st = session.stars;
-  if (st) {
-    // Bigger party for more stars: one burst + chime per star as it lands.
-    for (let i = 0; i < st; i++) setTimeout(() => { confetti(120 + 60 * i); sndFanfare(); }, 250 + i * 450);
-    if (st === 3) setTimeout(() => confetti(260), 250 + 3 * 450);
-  } else if (completed || newBadges.length || pbs.length) { confetti(); sndFanfare(); }
+  if (completed || newBadges.length || pbs.length) { confetti(); sndFanfare(); }
 }
 
 /* ---------------- Results ---------------- */
-function renderResults(s, newBadges, pbs, kind = 'maths') {
+// How this round compares with the previous one. Only kind words: improvements are cheered,
+// a dip is met with encouragement.
+function compareHtml(s, prev) {
+  const secs = s.secs ?? s.minutes * 60;
+  const rows = [];
+  if (!prev) rows.push(`<div class="cmp">This was your first ${MATH_MIN}-minute round. Next time you'll see how you compare.</div>`);
+  else {
+    const d = s.correct - prev.correct;
+    rows.push(d > 0 ? `<div class="cmp up">⬆️ <b>${d} more right</b> than last time (${prev.correct} → ${s.correct}) 🎉</div>`
+      : d === 0 ? `<div class="cmp">🤝 Same as last time: <b>${s.correct} right</b>.</div>`
+      : `<div class="cmp">Last time you got ${prev.correct} right. You can beat it next round 💪</div>`);
+    const m = s.total - s.correct, pm = prev.total - prev.correct;
+    rows.push(m < pm ? `<div class="cmp up">👏 <b>${pm - m} fewer mistake${pm - m === 1 ? '' : 's'}</b> (${pm} → ${m})</div>`
+      : m === pm ? `<div class="cmp">${m ? `${m} mistake${m === 1 ? '' : 's'}, same as last time.` : 'No mistakes again! 🌟'}</div>`
+      : `<div class="cmp">${m} mistakes this time (last time ${pm}). Take your time, there's no rush.</div>`);
+    if (s.correct && prev.correct) {
+      const now = secs / s.correct, was = (prev.secs ?? prev.minutes * 60) / prev.correct;
+      rows.push(now < was - 0.05 ? `<div class="cmp up">⚡ <b>Faster:</b> ${now.toFixed(1)} seconds per right answer (was ${was.toFixed(1)})</div>`
+        : `<div class="cmp">${now.toFixed(1)} seconds per right answer (last time ${was.toFixed(1)})</div>`);
+    }
+  }
+  const c = s.carried || [];
+  if (c.length) {
+    const fixed = c.filter((x) => x[2]).length;
+    rows.push(`<div class="cmp ${fixed ? 'up' : ''}">${fixed === c.length ? '🌟 ' : ''}Last time's tricky ones: <b>${fixed} of ${c.length} right</b> this time</div>
+      <div class="chips" style="margin-top:6px">${c.map(([a, b, ok]) => `<span class="chip ${ok ? 'm3' : 'm1'}"><b>${a} × ${b}</b><small>${ok ? '✅ ' + a * b : '❌ ' + a * b}</small></span>`).join('')}</div>`);
+  }
+  return `<div class="card"><h3 style="margin-bottom:6px">Compared with last round</h3>${rows.join('')}</div>`;
+}
+
+function renderResults(s, newBadges, pbs, kind = 'maths', prev = null) {
   const acc = Math.round((100 * s.correct) / s.total);
   const trophy = acc >= 95 ? '🏆' : acc >= 80 ? '🥈' : acc >= 60 ? '🥉' : '💪';
   const cheer = acc >= 95 ? 'Amazing!' : acc >= 80 ? 'Great work!' : acc >= 60 ? 'Nice effort!' : 'Keep practising!';
@@ -742,16 +778,16 @@ function renderResults(s, newBadges, pbs, kind = 'maths') {
   const mistakeRows = reading
     ? mistakes.map(([w, heard]) => `<div class="mistake"><button class="sayit plain" data-w="${esc(w)}">🔊 ${esc(w)}</button><span class="said">${heard ? `heard “${esc(heard)}”` : ''}</span></div>`)
     : mistakes.map(([a, b, g]) => `<div class="mistake"><span>${a} × ${b} = ${a * b}</span><span class="said">you said ${g}</span></div>`);
-  const st = reading ? 0 : (s.stars ?? starsFor(s.correct));
-  const STAR_CHEER = ['Keep going!', 'You got a star!', 'Two stars! Brilliant!', 'SUPERSTAR! Three stars!'];
+  const secs = s.secs ?? s.minutes * 60;
   const head = reading
     ? `<div class="trophy">${trophy}</div><h1 class="white center">${cheer}</h1>`
-    : `<div class="stars">${[0, 1, 2].map((i) => `<span class="${i < st ? '' : 'off'}" style="animation-delay:${0.25 + i * 0.45}s">⭐</span>`).join('')}</div>
-       <h1 class="white center">${STAR_CHEER[st]}</h1>
-       <div class="star-goal">${st < 3 ? `${s.correct} right. Get ${STAR_AT[st]} right for ${st ? 'the next star' : 'your first star'}!` : `${s.correct} right in ${MATH_MIN} minutes!`}</div>`;
+    : `<div class="trophy">${trophy}</div><h1 class="white center">${cheer}</h1>
+       <div class="card center"><div class="stat-big" style="font-size:34px">${s.correct} right</div>
+         <div style="font-weight:800;font-size:18px">in ${secs} seconds</div>
+         ${s.correct ? `<div class="muted" style="font-weight:700;margin-top:4px">About one right answer every ${(secs / s.correct).toFixed(1)} seconds</div>` : ''}</div>`;
   $('#results').innerHTML = `
     ${head}
-    ${reading ? '' : '<div id="friendsRes"></div>'}
+    ${reading ? '' : compareHtml(s, prev) + '<div id="friendsRes"></div>'}
     ${s.completed ? '' : '<div class="today todo">Stopped early: this one won\'t count for the streak.</div>'}
     ${pbs.map((p) => `<div class="pb">⭐ ${p}</div>`).join('')}
     <div class="card grid2 center">
@@ -763,8 +799,8 @@ function renderResults(s, newBadges, pbs, kind = 'maths') {
     </div>
     ${newBadges.length ? `<div class="card"><h3 style="margin-bottom:10px">New badge${newBadges.length > 1 ? 's' : ''}!</h3>
       ${newBadges.map((b) => `<div class="new-badge" style="margin-bottom:8px"><span class="i">${b.i}</span><div>${b.name}<div class="muted" style="font-size:13px">${b.desc}</div></div></div>`).join('')}</div>` : ''}
-    ${mistakes.length ? `<div class="card"><h3 style="margin-bottom:6px">${reading ? "Let's practise these words" : "Let's remember these"}</h3>
-      ${reading ? '<div class="muted" style="font-size:13px;font-weight:700">Tap a word to hear it.</div>' : ''}
+    ${mistakes.length ? `<div class="card"><h3 style="margin-bottom:6px">${reading ? "Let's practise these words" : 'What went wrong'}</h3>
+      <div class="muted" style="font-size:13px;font-weight:700">${reading ? 'Tap a word to hear it.' : 'These come again at the start of your next round.'}</div>
       ${mistakeRows.join('')}</div>`
       : '<div class="card center" style="font-weight:800">No mistakes at all! 🌟</div>'}
     <button class="btn primary" id="homeBtn">🏠 Done</button>
@@ -872,15 +908,15 @@ function renderSettings() {
       <h3>✖️ Maths</h3>
       <label class="set">Show maths <input type="checkbox" id="setMaths" ${S.settings.maths ? 'checked' : ''}></label>
       <label class="set">Include ×1 facts <input type="checkbox" id="setOnes" ${S.settings.includeOnes ? 'checked' : ''}></label>
-      <p class="muted" style="font-weight:600;font-size:13px;margin:4px 0 0">${MATH_MIN}-minute rounds. ${STAR_AT[0]} right = ⭐, ${STAR_AT[1]} = ⭐⭐, ${STAR_AT[2]} or more = ⭐⭐⭐.</p>
+      <p class="muted" style="font-weight:600;font-size:13px;margin:4px 0 0">${MATH_MIN}-minute rounds with no clock on screen. Questions missed in a round come back at the start of the next one.</p>
     </div>
-    <div class="card">
+    ${FRIENDS_LIVE ? `<div class="card">
       <h3>👫 Friends' challenge</h3>
       ${joined(S) ? `<div class="row between" style="margin:8px 0"><span style="font-weight:800">${S.friends.emoji} ${esc(S.friends.name)}</span><button class="btn ghost" id="frEdit" style="color:inherit">Change</button></div>
         <button class="btn danger" id="frLeave" style="width:100%">Leave and delete shared scores</button>`
         : '<button class="btn primary" id="frJoin" style="width:100%;margin-top:8px">Join</button>'}
       <p class="muted" style="font-weight:600;font-size:13px;margin:8px 0 0">Shares only a nickname, an animal and the best maths score each day with other players of Times Dash. Scores are deleted after 30 days.</p>
-    </div>
+    </div>` : ''}
     <div class="card">
       <h3>📖 Reading</h3>
       <label class="set">Show reading <input type="checkbox" id="setReading" ${S.settings.reading ? 'checked' : ''}></label>
@@ -1606,7 +1642,7 @@ async function api(path, body) {
 }
 // Send today's best if the server hasn't got it yet. Safe to call any time; retries later if offline.
 async function syncScore(p = S) {
-  if (!joined(p)) return false;
+  if (!FRIENDS_LIVE || !joined(p)) return false;
   const f = p.friends, day = dayKey(Date.now()), best = mathsBestToday(p);
   if (!best || (f.sent && f.sent.day === day && f.sent.best >= best && f.sent.name === f.name && f.sent.emoji === f.emoji)) return true;
   try {
@@ -1647,7 +1683,7 @@ function inviteFriends() {
 }
 // The card on the home and results screens.
 function friendsCardHtml() {
-  if (!subjectsOf(S).includes('maths')) return '';
+  if (!FRIENDS_LIVE || !subjectsOf(S).includes('maths')) return '';
   const inv = '<button class="btn finvite" style="width:100%;margin-top:10px;background:#dcfce7;color:#166534;box-shadow:none">💬 Invite a friend on WhatsApp</button>';
   if (!joined(S)) return `<div class="card friends"><h3>👫 Friends</h3>
     <div class="muted" style="font-weight:700;margin:6px 0 10px">Play maths with your friends and see how you compare each day.</div>
@@ -1708,7 +1744,7 @@ async function leaveFriends() {
 // After a maths round: send the score, then show how she/he compares (with a cheer for anyone just passed).
 async function friendsAfterRound(session) {
   const box = $('#friendsRes');
-  if (!box) return;
+  if (!box || !FRIENDS_LIVE) return;
   if (!joined(S)) { box.innerHTML = friendsCardHtml(); wireFriendsCard(box, 0); return; }
   const mine = mathsBestToday(S), prev = session ? mathsBestToday(S, session) : mine;
   box.innerHTML = friendsCardHtml();
